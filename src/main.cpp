@@ -122,8 +122,8 @@ void saveImage() {
 
 void runCuda() {
     if (lastLoopIterations != ui_iterations) {
-      lastLoopIterations = ui_iterations;
-      camchanged = true;
+        lastLoopIterations = ui_iterations;
+        camchanged = true;
     }
 
     if (camchanged) {
@@ -144,7 +144,7 @@ void runCuda() {
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
         camchanged = false;
-      }
+    }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
