@@ -28,12 +28,17 @@ struct RenderState {
     int recordDepth = -1;
 };
 
+struct ShadeableIntersection;
+
 struct GBufferData {
+    float t = -1.f;
     i32 geometryId = -1;
     i32 materialId = -1;
     i32 stencilId = -1;
     glm::vec3 baseColor;
-    glm::vec3 normal;
+    glm::vec3 surfaceNormal;
+
+    GLM_FUNC_QUALIFIER void copyFromIntersection(const ShadeableIntersection& intersection);
 };
 
 struct PathSegment {
@@ -62,8 +67,16 @@ struct ShadeableIntersection {
     int stencilId = -1;
 };
 
-// CHECKITOUT - a simple struct for storing scene geometry information per-pixel.
-// What information might be helpful for guiding a denoising filter?
-struct GBufferPixel {
-  float t;
-};
+GLM_FUNC_QUALIFIER void GBufferData::copyFromIntersection(const ShadeableIntersection& intersection) {
+    geometryId = intersection.geometryId;
+    materialId = intersection.materialId;
+    surfaceNormal = intersection.surfaceNormal;
+    stencilId = intersection.stencilId;
+    t = intersection.t;
+}
+
+//// CHECKITOUT - a simple struct for storing scene geometry information per-pixel.
+//// What information might be helpful for guiding a denoising filter?
+//struct GBufferPixel {
+//  float t;
+//};

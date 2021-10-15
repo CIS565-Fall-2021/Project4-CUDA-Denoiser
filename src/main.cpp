@@ -214,13 +214,16 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
+        pathtrace(pbo_dptr, frame, iteration);
     }
 
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr);
     } else {
       showImage(pbo_dptr, iteration);
+
+      //cudaMemcpy(scene->state.image.data(), scene->dev_frameBuffer.buffer,
+      //    renderState->camera.resolution.x * renderState->camera.resolution.y * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
     }
 
     // unmap buffer object

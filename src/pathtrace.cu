@@ -110,13 +110,13 @@ bool firstIntersectionCached = false;
 #endif // ENABLE_CACHE_FIRST_INTERSECTION
 
 // TODO
-__global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
+__global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, Texture2D<GBufferData> gBuffer) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        float timeToIntersect = gBuffer[index].t * 256.0;
+        float timeToIntersect = gBuffer.getPixelByHW(y, x).t * 256.0f;//gBuffer[index].t * 256.0;
 
         pbo[index].w = 0;
         pbo[index].x = timeToIntersect;
@@ -472,11 +472,8 @@ __global__ void shadeAndScatter (
             // GBuffer hit
             if (depth == 1) {
                 GBufferData gBufferData;
-                gBufferData.geometryId = intersection.geometryId;
-                gBufferData.materialId = intersection.materialId;
-                gBufferData.normal = intersection.surfaceNormal;
+                gBufferData.copyFromIntersection(intersection);
                 gBufferData.baseColor = material.getDiffuse(intersection.uv);
-                gBufferData.stencilId = intersection.stencilId;
                 //printf("geom%d, pixel%d stencil = %d\n", intersection.geometryId, pathSegments[idx].pixelIndex, intersection.stencilId);//TEST
 
                 pathSegments[idx].gBufferData = gBufferData;
@@ -554,7 +551,7 @@ struct PartitionPredicate {
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
  */
-void pathtrace(int frame, int iter) {
+void pathtrace(uchar4* pbo, int frame, int iter) {
     const int traceDepth = hst_scene->state.traceDepth;
     const Camera &cam = hst_scene->state.camera;
     const int pixelcount = cam.resolution.x * cam.resolution.y;
@@ -622,7 +619,8 @@ void pathtrace(int frame, int iter) {
         // tracing
         dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
 #if ENABLE_CACHE_FIRST_INTERSECTION
-        if (depth == 0 && cacheFirstIntersection && firstIntersectionCached) {
+        //if (depth == 0 && cacheFirstIntersection && firstIntersectionCached) {
+        if (depth == 0 && iter > 1) {
             cudaMemcpy(dev_intersections, dev_intersectionsCache, sizeof(ShadeableIntersection) * num_paths, cudaMemcpyDeviceToDevice);
             checkCUDAError("readIntersections");
         }
@@ -636,10 +634,11 @@ void pathtrace(int frame, int iter) {
                 , dev_intersections
                 );
             checkCUDAError("trace one bounce");
-            if (depth == 0 && !firstIntersectionCached) {
+            //if (depth == 0 && !firstIntersectionCached) {
+            if (depth == 0 && iter == 1) {
                 cudaMemcpy(dev_intersectionsCache, dev_intersections, sizeof(ShadeableIntersection) * num_paths, cudaMemcpyDeviceToDevice);
                 checkCUDAError("writeIntersections");
-                firstIntersectionCached = true;
+                //firstIntersectionCached = true;
             }
         }
 #else // ENABLE_CACHE_FIRST_INTERSECTION
@@ -716,18 +715,41 @@ void pathtrace(int frame, int iter) {
     writeToGBuffer<<<numBlocksPixels, blockSize1d>>>(pixelcount, hst_scene->dev_GBuffer.buffer, dev_paths, iter);
     checkCUDAError("writeToGBuffer");
 
-//#endif // PREGATHER_FINAL_IMAGE
+//#endif // PREGATHER_FINAL_IMAGE../
     glm::vec3* framebuffer = hst_scene->postProcessGPU(dev_image, dev_paths, blocksPerGrid2d, blockSize2d, iter);
     ///////////////////////////////////////////////////////////////////////////
 
     // Send results to OpenGL buffer for rendering
-    sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, framebuffer);
+    //sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, framebuffer);
 
     // Retrieve image from GPU
     cudaMemcpy(hst_scene->state.image.data(), framebuffer,
             pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
 
     checkCUDAError("pathtrace");
+}
+
+// CHECKITOUT: this kernel "post-processes" the gbuffer/gbuffers into something that you can visualize for debugging.
+void showGBuffer(uchar4* pbo) {
+    const Camera &cam = hst_scene->state.camera;
+    const dim3 blockSize2d(8, 8);
+    const dim3 blocksPerGrid2d(
+        (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
+        (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
+    
+    // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
+    gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, hst_scene->dev_GBuffer);
+}
+
+void showImage(uchar4* pbo, int iter) {
+    const Camera &cam = hst_scene->state.camera;
+    const dim3 blockSize2d(8, 8);
+    const dim3 blocksPerGrid2d(
+        (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
+        (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
+    
+    // Send results to OpenGL buffer for rendering
+    sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, hst_scene->dev_frameBuffer.buffer);
 }
 
 ////////////////// START DEBUG COLLISION /////////////////////////
