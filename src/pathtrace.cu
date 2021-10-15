@@ -109,6 +109,7 @@ bool cacheFirstIntersection = true;
 bool firstIntersectionCached = false;
 #endif // ENABLE_CACHE_FIRST_INTERSECTION
 
+// TODO
 __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
