@@ -67,7 +67,7 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
     }
 }
 
-#define VISUALIZE_NORMAL
+//#define VISUALIZE_NORMAL
 __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
@@ -89,10 +89,9 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
             pbo[index].y = glm::clamp((gBuffer[index].position.y + 5) / 10.f * 255.f, 0.f, 255.f) * .75f;
             pbo[index].z = glm::clamp((gBuffer[index].position.z + 5) / 10.f * 255.f, 0.f, 255.f) * .75f;
 #else
-            float timeToIntersect = gBuffer[index].t * 256.0;
-            pbo[index].x = timeToIntersect;
-            pbo[index].y = timeToIntersect;
-            pbo[index].z = timeToIntersect;
+            pbo[index].x = gBuffer[index].color.x * 255.f;
+            pbo[index].y = gBuffer[index].color.y * 255.f;
+            pbo[index].z = gBuffer[index].color.z * 255.f;
 #endif
 #endif
         }
@@ -112,8 +111,6 @@ static Material * dev_materials = NULL;
 static PathSegment * dev_paths = NULL;
 static ShadeableIntersection * dev_intersections = NULL;
 static GBufferPixel* dev_gBuffer = NULL;
-// TODO: static variables for device memory, any extra info you need, etc
-// ...
 
 void pathtraceInit(Scene *scene) {
     hst_scene = scene;
@@ -136,8 +133,6 @@ void pathtraceInit(Scene *scene) {
 
     cudaMalloc(&dev_gBuffer, pixelcount * sizeof(GBufferPixel));
 
-    // TODO: initialize any extra device memeory you need
-
     checkCUDAError("pathtraceInit");
 }
 
@@ -148,7 +143,6 @@ void pathtraceFree() {
   	cudaFree(dev_materials);
   	cudaFree(dev_intersections);
     cudaFree(dev_gBuffer);
-    // TODO: clean up any extra device memory you created
 
     checkCUDAError("pathtraceFree");
 }
@@ -307,6 +301,7 @@ __global__ void generateGBuffer (
     gBuffer[idx].t = shadeableIntersections[idx].t;
     gBuffer[idx].position = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
     gBuffer[idx].normal = shadeableIntersections[idx].surfaceNormal;
+    gBuffer[idx].color = pathSegments[idx].color;
   }
 }
 
@@ -403,12 +398,6 @@ void pathtrace(int frame, int iter) {
 	checkCUDAError("trace one bounce");
 	cudaDeviceSynchronize();
 
-  if (depth == 0) {
-    generateGBuffer<<<numblocksPathSegmentTracing, blockSize1d>>>(num_paths, dev_intersections, dev_paths, dev_gBuffer);
-  }
-
-	depth++;
-
   shadeSimpleMaterials<<<numblocksPathSegmentTracing, blockSize1d>>> (
     iter,
     num_paths,
@@ -416,6 +405,13 @@ void pathtrace(int frame, int iter) {
     dev_paths,
     dev_materials
   );
+
+  if (depth == 0) {
+      generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer);
+  }
+
+  depth++;
+
   iterationComplete = depth == traceDepth;
 	}
 
