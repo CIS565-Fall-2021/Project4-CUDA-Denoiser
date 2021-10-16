@@ -101,3 +101,7 @@ struct ShadeableIntersection {
   int materialId;
   glm::vec3 texture_color;
 };
+
+struct GBufferPixel {
+    float t;
+};
