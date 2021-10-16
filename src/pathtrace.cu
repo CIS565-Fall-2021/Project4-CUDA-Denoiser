@@ -67,6 +67,24 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
     }
 }
 
+__global__ void filterImage(glm::ivec2 resolution,
+    int iter, Denoise denoise, glm::vec3* image, GBufferPixel* gBuffer) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        glm::vec3 pix = image[index];
+        pix /= iter;
+
+        // TODO: apply A-Trous Filter algorithm
+        for (int i = 0; i < 25; i++)
+        {
+        }
+        gBuffer[index].color = pix;
+    }
+}
+
 //#define VISUALIZE_NORMAL
 __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -100,6 +118,24 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
             pbo[index].x = 0;
             pbo[index].y = 0;
             pbo[index].z = 0;
+        }
+    }
+}
+
+__global__ void gbufferColorToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+
+        pbo[index].w = 0;
+
+        if (gBuffer[index].t > 0.0)
+        {
+            pbo[index].x = gBuffer[index].color.x * 255.f;
+            pbo[index].y = gBuffer[index].color.y * 255.f;
+            pbo[index].z = gBuffer[index].color.z * 255.f;
         }
     }
 }
@@ -451,4 +487,44 @@ const Camera &cam = hst_scene->state.camera;
 
     // Send results to OpenGL buffer for rendering
     sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_image);
+}
+
+void showDenoisedImage(uchar4* pbo, int iter, Denoise denoise)
+{
+    const Camera& cam = hst_scene->state.camera;
+    const dim3 blockSize2d(8, 8);
+    const dim3 blocksPerGrid2d(
+        (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
+        (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
+
+    // Fill denoiser argument
+    // TODO: verify the kerne lis correct
+    for (int i = 0; i < 25; i += 5)
+    {
+        denoise.kernel[i] = .0625f;
+        denoise.kernel[i + 1] = .25f;
+        denoise.kernel[i + 2] = .375f;
+        denoise.kernel[i + 3] = .25f;
+        denoise.kernel[i + 4] = .0625f;
+
+        for (int j = 0; j < 5; j++)
+            denoise.offset[i + j] = glm::vec2{i - 2, j - 2};
+    }
+
+    for (int i = 0; i < 5; i++)
+    {
+        for (int j = 0; j < 5; j++)
+        {
+            denoise.offset[i * 5 + j] = glm::vec2{ i - 2, j - 2 };
+        }
+    }
+
+    for (int i = 1; i <= (denoise.kernelSize / 5); i <<= 1)
+    {
+        denoise.stepWidth = i;
+        filterImage << <blocksPerGrid2d, blockSize2d >> > 
+            (cam.resolution, iter, denoise, dev_image, dev_gBuffer);
+    }
+    // Send results to OpenGL buffer for rendering
+    gbufferColorToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer);
 }
