@@ -307,6 +307,7 @@ __global__ void generateGBuffer (
     gBuffer[idx].t = shadeableIntersections[idx].t;
     gBuffer[idx].position = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
     gBuffer[idx].normal = shadeableIntersections[idx].surfaceNormal;
+    gBuffer[idx].color = pathSegments[idx].color;
   }
 }
 
