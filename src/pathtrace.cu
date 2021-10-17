@@ -67,7 +67,7 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
     }
 }
 
-#define V_N 0
+#define V_N 1
 #define V_P 0
 
 __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
@@ -89,7 +89,6 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
 #else
         color = glm::vec3(timeToIntersect);
 #endif
-
         pbo[index].w = 0;
         pbo[index].x = color[0];
         pbo[index].y = color[1];
@@ -106,6 +105,9 @@ static ShadeableIntersection * dev_intersections = NULL;
 static GBufferPixel* dev_gBuffer = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
+
+// for denoiser
+static glm::vec3* dev_denoisedImage = NULL;
 
 void pathtraceInit(Scene *scene) {
     hst_scene = scene;
@@ -130,6 +132,9 @@ void pathtraceInit(Scene *scene) {
 
     // TODO: initialize any extra device memeory you need
 
+    cudaMalloc(&dev_denoisedImage, pixelcount * sizeof(glm::vec3));
+    cudaMemset(dev_denoisedImage, 0, pixelcount * sizeof(glm::vec3));
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -141,6 +146,7 @@ void pathtraceFree() {
   	cudaFree(dev_intersections);
     cudaFree(dev_gBuffer);
     // TODO: clean up any extra device memory you created
+    cudaFree(dev_denoisedImage);
 
     checkCUDAError("pathtraceFree");
 }
