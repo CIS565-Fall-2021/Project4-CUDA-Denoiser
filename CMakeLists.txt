@@ -76,6 +76,7 @@ set(headers
     src/sceneStructs.h
     src/preview.h
     src/utilities.h
+    src/denoise.h
     
     src/scenestruct/texture.h
     src/scenestruct/material.h
@@ -100,6 +101,7 @@ set(sources
     src/scene.cpp
     src/preview.cpp
     src/utilities.cpp
+    src/denoise.cu
     
     src/scene.cu
     

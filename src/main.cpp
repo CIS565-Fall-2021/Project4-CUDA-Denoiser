@@ -2,13 +2,14 @@
 #include "preview.h"
 #include <cstring>
 #include "profile_log/logCore.hpp"
+#include "denoise.h"
+#include "../imgui/imgui.h"
+#include "../imgui/imgui_impl_glfw.h"
+#include "../imgui/imgui_impl_opengl3.h"
 
 
 #pragma warning(push)
 #pragma warning(disable:4996)
-#include "../imgui/imgui.h"
-#include "../imgui/imgui_impl_glfw.h"
-#include "../imgui/imgui_impl_opengl3.h"
 
 static std::string startTimeString;
 
@@ -28,10 +29,13 @@ int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
 bool ui_denoise = false;
-int ui_filterSize = 80;
-float ui_colorWeight = 0.45f;
-float ui_normalWeight = 0.35f;
-float ui_positionWeight = 0.2f;
+bool ui_temporal = false;
+int ui_filterSize = 8;//80;
+float ui_colorWeight = 0.6f;//0.45f;
+float ui_normalWeight = 0.9f;//0.35f;
+float ui_positionWeight = 10.f;//0.2f;
+int ui_denoiseTypeIndex = static_cast<int>(Denoise::DenoiserType::A_TROUS);
+int ui_gBufferDataIndex = static_cast<int>(GBufferDataType::TIME);
 bool ui_saveAndExit = false;
 
 static bool camchanged = true;
@@ -92,13 +96,33 @@ int main(int argc, char** argv) {
     else {
         sceneFile = argv[1];
     }
-#if ENABLE_PROFILE_LOG
     if (argc < 3) {
+        std::cout << "Enable denoise? (1/0): " << std::flush;
+        std::cin >> ui_denoiseTypeIndex;
+        ui_denoise = ui_denoiseTypeIndex;
+        ui_denoiseTypeIndex = glm::clamp(ui_denoiseTypeIndex, 1, static_cast<int>(Denoise::DenoiserType::MAX_INDEX)) - 1;
+    }
+    else {
+        ui_denoiseTypeIndex = atoi(argv[2]);
+        ui_denoise = ui_denoiseTypeIndex;
+        ui_denoiseTypeIndex = glm::clamp(ui_denoiseTypeIndex, 1, static_cast<int>(Denoise::DenoiserType::MAX_INDEX)) - 1;
+    }
+
+    if (argc < 4) {
+        std::cout << "Filter size? : " << std::flush;
+        std::cin >> ui_filterSize;
+    }
+    else {
+        ui_filterSize = atoi(argv[3]);
+    }
+
+#if ENABLE_PROFILE_LOG
+    if (argc < 5) {
         std::cout << "Save profile log? (1/0): " << std::flush;
         std::cin >> saveProfileLog;
     }
     else {
-        saveProfileLog = atoi(argv[2]);
+        saveProfileLog = atoi(argv[4]);
     }
 #endif // ENABLE_PROFILE_LOG
 
@@ -172,7 +196,66 @@ void saveImage() {
     //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
+bool triggerClearIterationByUI() {
+    static bool last_ui_denoise = ui_denoise;
+    static bool last_ui_temporal = ui_temporal;
+    static int last_ui_filterSize = ui_filterSize;
+    static int last_ui_denoiseTypeIndex = ui_denoiseTypeIndex;
+
+    static float last_ui_colorWeight = ui_colorWeight;
+    static float last_ui_normalWeight = ui_normalWeight;
+    static float last_ui_positionWeight = ui_positionWeight;
+
+    bool result = false;
+
+    if (ui_denoise != last_ui_denoise) {
+        last_ui_denoise = ui_denoise;
+        result = true;
+    }
+    if (ui_temporal != last_ui_temporal) {
+        last_ui_temporal = ui_temporal;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_filterSize != last_ui_filterSize) {
+        last_ui_filterSize = ui_filterSize;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_denoiseTypeIndex != last_ui_denoiseTypeIndex) {
+        last_ui_denoiseTypeIndex = ui_denoiseTypeIndex;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_colorWeight != last_ui_colorWeight) {
+        last_ui_colorWeight = ui_colorWeight;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_normalWeight != last_ui_normalWeight) {
+        last_ui_normalWeight = ui_normalWeight;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_positionWeight != last_ui_positionWeight) {
+        last_ui_positionWeight = ui_positionWeight;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    return result;
+}
+
 void runCuda() {
+    if (triggerClearIterationByUI()) {
+        iteration = 0;
+    }
+
     if (lastLoopIterations != ui_iterations) {
       lastLoopIterations = ui_iterations;
       camchanged = true;
@@ -218,7 +301,7 @@ void runCuda() {
     }
 
     if (ui_showGbuffer) {
-      showGBuffer(pbo_dptr);
+      showGBuffer(pbo_dptr, static_cast<GBufferDataType>(ui_gBufferDataIndex));
     } else {
       showImage(pbo_dptr, iteration);
 

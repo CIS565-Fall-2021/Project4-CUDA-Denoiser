@@ -109,14 +109,13 @@ bool cacheFirstIntersection = true;
 bool firstIntersectionCached = false;
 #endif // ENABLE_CACHE_FIRST_INTERSECTION
 
-// TODO
-__global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, Texture2D<GBufferData> gBuffer) {
+__global__ void gbufferToPBO_Time(uchar4* pbo, glm::ivec2 resolution, Texture2D<GBufferPixel> gBuffer) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        float timeToIntersect = gBuffer.getPixelByHW(y, x).t * 256.0f;//gBuffer[index].t * 256.0;
+        float timeToIntersect = gBuffer.getPixelByHW(y, x).t * 255.0f;//gBuffer[index].t * 256.0;
 
         pbo[index].w = 0;
         pbo[index].x = timeToIntersect;
@@ -124,6 +123,92 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, Texture2D<GBuff
         pbo[index].z = timeToIntersect;
     }
 }
+
+__global__ void gbufferToPBO_BaseColor(uchar4* pbo, glm::ivec2 resolution, Texture2D<GBufferPixel> gBuffer) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        glm::vec3 color255 = gBuffer.getPixelByHW(y, x).baseColor * 255.0f;
+
+        pbo[index].w = 255;
+        pbo[index].x = color255.x;
+        pbo[index].y = color255.y;
+        pbo[index].z = color255.z;
+    }
+}
+
+__global__ void gbufferToPBO_Normal(uchar4* pbo, glm::ivec2 resolution, Texture2D<GBufferPixel> gBuffer) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        glm::vec3 normal255 = (gBuffer.getPixelByHW(y, x).surfaceNormal * 0.5f + 0.5f) * 255.0f;
+
+        pbo[index].w = 255;
+        pbo[index].x = normal255.x;
+        pbo[index].y = normal255.y;
+        pbo[index].z = normal255.z;
+    }
+}
+
+__global__ void gbufferToPBO_ObjectID(uchar4* pbo, glm::ivec2 resolution, Texture2D<GBufferPixel> gBuffer) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        int objectID = gBuffer.getPixelByHW(y, x).geometryId + 1;
+        glm::ivec3 obj255(
+            objectID * 5,
+            objectID * 15,
+            objectID * 25
+        );
+
+        pbo[index].w = 255;
+        pbo[index].x = obj255.x;
+        pbo[index].y = obj255.y;
+        pbo[index].z = obj255.z;
+    }
+}
+
+__global__ void gbufferToPBO_MaterialID(uchar4* pbo, glm::ivec2 resolution, Texture2D<GBufferPixel> gBuffer) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        int materialID = gBuffer.getPixelByHW(y, x).materialId + 1;
+        glm::ivec3 mat255(
+            materialID * 5,
+            materialID * 15,
+            materialID * 25
+        );
+
+        pbo[index].w = 255;
+        pbo[index].x = mat255.x;
+        pbo[index].y = mat255.y;
+        pbo[index].z = mat255.z;
+    }
+}
+
+__global__ void gbufferToPBO_Position(uchar4* pbo, glm::ivec2 resolution, Texture2D<GBufferPixel> gBuffer) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+    
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        glm::vec3 position255 = (gBuffer.getPixelByHW(y, x).position) * 255.0f;
+
+        pbo[index].w = 255;
+        pbo[index].x = position255.x;
+        pbo[index].y = position255.y;
+        pbo[index].z = position255.z;
+    }
+}
+
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
 
@@ -471,9 +556,11 @@ __global__ void shadeAndScatter (
 
             // GBuffer hit
             if (depth == 1) {
-                GBufferData gBufferData;
+                Ray r = pathSegments[idx].ray;
+                GBufferPixel gBufferData;
                 gBufferData.copyFromIntersection(intersection);
                 gBufferData.baseColor = material.getDiffuse(intersection.uv);
+                gBufferData.position = r.origin + r.direction * intersection.t;
                 //printf("geom%d, pixel%d stencil = %d\n", intersection.geometryId, pathSegments[idx].pixelIndex, intersection.stencilId);//TEST
 
                 pathSegments[idx].gBufferData = gBufferData;
@@ -495,7 +582,7 @@ __global__ void shadeAndScatter (
             }
             // GBuffer background
             if (depth == 1) {
-                GBufferData gBufferData;
+                GBufferPixel gBufferData;
                 gBufferData.baseColor = backgroundColor;
 
                 pathSegments[idx].gBufferData = gBufferData;
@@ -524,7 +611,7 @@ __global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterati
 }
 
 // Add the current iteration's output to the GBuffer
-__global__ void writeToGBuffer(int nPaths, GBufferData* image, PathSegment * iterationPaths, int iter)
+__global__ void writeToGBuffer(int nPaths, GBufferPixel* image, PathSegment * iterationPaths, int iter)
 {
     int index = (blockIdx.x * blockDim.x) + threadIdx.x;
 
@@ -711,11 +798,9 @@ void pathtrace(uchar4* pbo, int frame, int iter) {
     finalGather<<<numBlocksPixels, blockSize1d>>>(pixelcount, dev_image, dev_paths, iter);
 
     ///////////////////////////////////////////////////////////////////////////
-//#if PREGATHER_FINAL_IMAGE
     writeToGBuffer<<<numBlocksPixels, blockSize1d>>>(pixelcount, hst_scene->dev_GBuffer.buffer, dev_paths, iter);
     checkCUDAError("writeToGBuffer");
 
-//#endif // PREGATHER_FINAL_IMAGE../
     glm::vec3* framebuffer = hst_scene->postProcessGPU(dev_image, dev_paths, blocksPerGrid2d, blockSize2d, iter);
     ///////////////////////////////////////////////////////////////////////////
 
@@ -730,7 +815,7 @@ void pathtrace(uchar4* pbo, int frame, int iter) {
 }
 
 // CHECKITOUT: this kernel "post-processes" the gbuffer/gbuffers into something that you can visualize for debugging.
-void showGBuffer(uchar4* pbo) {
+void showGBuffer(uchar4* pbo, GBufferDataType type) {
     const Camera &cam = hst_scene->state.camera;
     const dim3 blockSize2d(8, 8);
     const dim3 blocksPerGrid2d(
@@ -738,7 +823,26 @@ void showGBuffer(uchar4* pbo) {
         (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
     
     // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
-    gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, hst_scene->dev_GBuffer);
+    switch (type) {
+    case GBufferDataType::TIME:
+        gbufferToPBO_Time<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, hst_scene->dev_GBuffer);
+        break;
+    case GBufferDataType::BASE_COLOR:
+        gbufferToPBO_BaseColor<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, hst_scene->dev_GBuffer);
+        break;
+    case GBufferDataType::NORMAL:
+        gbufferToPBO_Normal<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, hst_scene->dev_GBuffer);
+        break;
+    case GBufferDataType::OBJECT_ID:
+        gbufferToPBO_ObjectID<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, hst_scene->dev_GBuffer);
+        break;
+    case GBufferDataType::MATERIAL_ID:
+        gbufferToPBO_MaterialID<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, hst_scene->dev_GBuffer);
+        break;
+    case GBufferDataType::POSITION:
+        gbufferToPBO_Position<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, hst_scene->dev_GBuffer);
+        break;
+    }
 }
 
 void showImage(uchar4* pbo, int iter) {

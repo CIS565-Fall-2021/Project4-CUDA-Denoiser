@@ -11,6 +11,8 @@
 #include <stb_image.h>
 #include "thirdparty/tiny_obj_loader.h"
 #include "scene.h"
+#include "denoise.h"
+#include "main.h"
 
 const dim3 IMAGE_PROCESS_BLOCK_SIZE(16, 16, 1);
 const size_t Background::BACKGROUND_MATERIAL_INDEX = std::numeric_limits<size_t>::max();
@@ -409,11 +411,14 @@ void Scene::initGBuffer() {
     cudaMalloc(&dev_frameBuffer.buffer, sizeof(glm::vec3) * dev_frameBuffer.size.x * dev_frameBuffer.size.y);
 
     dev_GBuffer.size = state.camera.resolution;
-    cudaMalloc(&dev_GBuffer.buffer, sizeof(GBufferData) * dev_GBuffer.size.x * dev_GBuffer.size.y);
+    cudaMalloc(&dev_GBuffer.buffer, sizeof(GBufferPixel) * dev_GBuffer.size.x * dev_GBuffer.size.y);
     cudaDeviceSynchronize();
     std::cout << "Initialized frame buffer " << dev_frameBuffer.size.x << " x " << dev_frameBuffer.size.y << std::endl;
     std::cout << "Initialized G-buffer " << dev_GBuffer.size.x << " x " << dev_GBuffer.size.y << std::endl;
     checkCUDAError("cudaMalloc GBuffer");
+
+    Denoise::init(dev_GBuffer.size);
+    checkCUDAError("Denoise::init");
 }
 
 void Scene::freeGBuffer() {
@@ -422,11 +427,14 @@ void Scene::freeGBuffer() {
     cudaFree(dev_frameBuffer.buffer);
     cudaDeviceSynchronize();
     checkCUDAError("cudaFree GBuffer");
+
+    Denoise::deinit();
+    checkCUDAError("Denoise::deinit");
 }
 
 namespace PostProcessGPU {
 #if !PREGATHER_FINAL_IMAGE
-    __global__ void dividedByIter(Texture2D<glm::vec3> dst, Texture2D<glm::vec3> src, float iter) {
+    __global__ void dividedByIter(Texture2D<glm::vec3> dst, const Texture2D<glm::vec3> src, float iter) {
         int idxX = blockDim.x * blockIdx.x + threadIdx.x;
         int idxY = blockDim.y * blockIdx.y + threadIdx.y;
         if (idxX < dst.size.x && idxY < dst.size.y) {
@@ -436,12 +444,12 @@ namespace PostProcessGPU {
 #endif // PREGATHER_FINAL_IMAGE
     extern __global__ void postProcess_ColorRamp(
         Texture2D<glm::vec3> imageTexture, 
-        Texture2D<GBufferData> gBuffer, 
+        Texture2D<GBufferPixel> gBuffer, 
         Texture2D<glm::vec3> rampTexture);
 
     extern __global__ void postProcess_OutlineByStencil(
         Texture2D<glm::vec3> imageTexture, 
-        Texture2D<GBufferData> gBuffer, 
+        Texture2D<GBufferPixel> gBuffer, 
         int stencilId, glm::vec3 outlineColor, int outlineWidth);
 }
 
@@ -450,11 +458,32 @@ glm::vec3* Scene::postProcessGPU(glm::vec3* dev_image, PathSegment* dev_paths, c
     Texture2D<glm::vec3> imageTexture;
     imageTexture.buffer = dev_image;
     imageTexture.size = dev_GBuffer.size;
+    if (!ui_denoise) {
 #if !PREGATHER_FINAL_IMAGE
-    PostProcessGPU::dividedByIter<<<blocksPerGrid2d, blockSize2d>>>(dev_frameBuffer, imageTexture, iter);
+        PostProcessGPU::dividedByIter<<<blocksPerGrid2d, blockSize2d>>>(dev_frameBuffer, imageTexture, iter);
 #else // PREGATHER_FINAL_IMAGE
-    cudaMemcpy(dev_frameBuffer.buffer, dev_image, sizeof(glm::vec3) * dev_GBuffer.size.x * dev_GBuffer.size.y, cudaMemcpyDeviceToDevice);
+        cudaMemcpy(dev_frameBuffer.buffer, dev_image, sizeof(glm::vec3) * dev_GBuffer.size.x * dev_GBuffer.size.y, cudaMemcpyDeviceToDevice);
 #endif // PREGATHER_FINAL_IMAGE
+    }
+    else {
+        //printf("size: <%d,%d>, <%d,%d>, <%d,%d>\n", 
+        //    dev_frameBuffer.size.x, dev_frameBuffer.size.y,
+        //    imageTexture.size.x, imageTexture.size.y,
+        //    dev_GBuffer.size.x, dev_GBuffer.size.y);
+        Denoise::DenoiserType denoiseType = static_cast<Denoise::DenoiserType>(ui_denoiseTypeIndex);
+#if !PREGATHER_FINAL_IMAGE
+        PostProcessGPU::dividedByIter<<<blocksPerGrid2d, blockSize2d>>>(Denoise::tmpImageTextureBuffer, imageTexture, iter);
+        Denoise::denoise(denoiseType, blocksPerGrid2d, blockSize2d, dev_frameBuffer, Denoise::tmpImageTextureBuffer, dev_GBuffer);
+#else // PREGATHER_FINAL_IMAGE
+        Denoise::denoise(denoiseType, blocksPerGrid2d, blockSize2d, dev_frameBuffer, imageTexture, dev_GBuffer, {
+                ui_colorWeight,
+                ui_normalWeight,
+                ui_positionWeight
+            });
+#endif // PREGATHER_FINAL_IMAGE
+        checkCUDAError("denoise");
+    }
+
     for (size_t i = 0; i < postprocesses.size(); ++i) {
         auto& pppair = postprocesses[i];
         if (!pppair.second) {
@@ -483,11 +512,11 @@ glm::vec3* Scene::postProcessGPU(glm::vec3* dev_image, PathSegment* dev_paths, c
     return dev_frameBuffer.buffer;
 }
 
-__global__ void PostProcessGPU::postProcess_ColorRamp(Texture2D<glm::vec3> imageTexture, Texture2D<GBufferData> gBuffer, Texture2D<glm::vec3> rampTexture) {
+__global__ void PostProcessGPU::postProcess_ColorRamp(Texture2D<glm::vec3> imageTexture, Texture2D<GBufferPixel> gBuffer, Texture2D<glm::vec3> rampTexture) {
     int idxX = blockDim.x * blockIdx.x + threadIdx.x;
     int idxY = blockDim.y * blockIdx.y + threadIdx.y;
     if (idxX < imageTexture.size.x && idxY < imageTexture.size.y) {
-        //GBufferData gBufferData = gBuffer.getPixelByHW(idxY, idxX);
+        //GBufferPixel gBufferPixel = gBuffer.getPixelByHW(idxY, idxX);
         glm::vec3 color = imageTexture.getPixelByHW(idxY, idxX);
         color = glm::clamp(color, 0.f, 1.f);
         glm::vec3 ramp;
@@ -501,18 +530,18 @@ __global__ void PostProcessGPU::postProcess_ColorRamp(Texture2D<glm::vec3> image
     }
 }
 
-__global__ void PostProcessGPU::postProcess_OutlineByStencil(Texture2D<glm::vec3> imageTexture, Texture2D<GBufferData> gBuffer, int stencilId, glm::vec3 outlineColor, int outlineWidth) {
+__global__ void PostProcessGPU::postProcess_OutlineByStencil(Texture2D<glm::vec3> imageTexture, Texture2D<GBufferPixel> gBuffer, int stencilId, glm::vec3 outlineColor, int outlineWidth) {
     int idxX = blockDim.x * blockIdx.x + threadIdx.x;
     int idxY = blockDim.y * blockIdx.y + threadIdx.y;
     if (idxX < imageTexture.size.x && idxY < imageTexture.size.y) {
-        GBufferData data = gBuffer.getPixelByHW(idxY, idxX);
+        GBufferPixel data = gBuffer.getPixelByHW(idxY, idxX);
         if (data.stencilId == stencilId) {
             return;
         }
         //printf("%d,%d stencil = %d\n", idxX, idxY, data.stencilId);
         for (int y = glm::max(0, idxY - outlineWidth); y <= glm::min(imageTexture.size.y - 1, idxY + outlineWidth); ++y) {
             for (int x = glm::max(0, idxX - outlineWidth); x <= glm::min(imageTexture.size.x - 1, idxX + outlineWidth); ++x) {
-                GBufferData data1 = gBuffer.getPixelByHW(y, x);
+                GBufferPixel data1 = gBuffer.getPixelByHW(y, x);
                 if (data1.stencilId == stencilId) {
                     imageTexture.setPixelByHW(idxY, idxX, outlineColor);
                     return;

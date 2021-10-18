@@ -30,12 +30,22 @@ struct RenderState {
 
 struct ShadeableIntersection;
 
-struct GBufferData {
-    float t = -1.f;
+enum class GBufferDataType : ui8 {
+    TIME,
+    BASE_COLOR,
+    NORMAL,
+    OBJECT_ID,
+    MATERIAL_ID,
+    POSITION,
+};
+
+struct GBufferPixel {
+    float t = 0.f;
     i32 geometryId = -1;
     i32 materialId = -1;
     i32 stencilId = -1;
     glm::vec3 baseColor;
+    glm::vec3 position;
     glm::vec3 surfaceNormal;
 
     GLM_FUNC_QUALIFIER void copyFromIntersection(const ShadeableIntersection& intersection);
@@ -47,7 +57,7 @@ struct PathSegment {
     int pixelIndex;
     int remainingBounces;
 
-    GBufferData gBufferData;
+    GBufferPixel gBufferData;
 };
 
 // Use with a corresponding PathSegment to do:
@@ -67,7 +77,7 @@ struct ShadeableIntersection {
     int stencilId = -1;
 };
 
-GLM_FUNC_QUALIFIER void GBufferData::copyFromIntersection(const ShadeableIntersection& intersection) {
+GLM_FUNC_QUALIFIER void GBufferPixel::copyFromIntersection(const ShadeableIntersection& intersection) {
     geometryId = intersection.geometryId;
     materialId = intersection.materialId;
     surfaceNormal = intersection.surfaceNormal;

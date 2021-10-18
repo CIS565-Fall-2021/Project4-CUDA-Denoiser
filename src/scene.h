@@ -95,6 +95,6 @@ public:
     Background background;
 
     Texture2D<glm::vec3> dev_frameBuffer;
-    Texture2D<GBufferData> dev_GBuffer;
+    Texture2D<GBufferPixel> dev_GBuffer;
     std::vector<std::pair<PostProcessType, bool>> postprocesses;
 };

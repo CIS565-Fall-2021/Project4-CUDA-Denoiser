@@ -1,16 +1,17 @@
 #define _CRT_SECURE_NO_DEPRECATE
 #include <ctime>
+#include <iomanip>
 #include "main.h"
 #include "preview.h"
+#include "denoise.h"
 #include "profile_log/logCore.hpp"
-#include <iomanip>
+#include "../imgui/imgui.h"
+#include "../imgui/imgui_impl_glfw.h"
+#include "../imgui/imgui_impl_opengl3.h"
 
 
 #pragma warning(push)
 #pragma warning(disable:4996)
-#include "../imgui/imgui.h"
-#include "../imgui/imgui_impl_glfw.h"
-#include "../imgui/imgui_impl_opengl3.h"
 
 #define IMGUI_IMPL_OPENGL_LOADER_GLEW
 
@@ -39,6 +40,24 @@ std::string currentTimeString() {
 //-------------------------------
 //----------SETUP STUFF----------
 //-------------------------------
+
+static const std::unordered_map<Denoise::DenoiserType, std::string> denoiserTypeToString {
+    { Denoise::DenoiserType::A_TROUS, "A Trous" },
+    { Denoise::DenoiserType::A_TROUS_EDGE_AVOIDING, "Edge Avoiding" },
+    { Denoise::DenoiserType::A_TROUS_EDGE_AVOIDING_MORE_PARAM, "More Param" },
+};
+
+static const std::unordered_map<GBufferDataType, std::string> gBufferDataTypeToString {
+    { GBufferDataType::TIME, "Time" },
+    { GBufferDataType::BASE_COLOR, "Base Color" },
+    { GBufferDataType::NORMAL, "Normal" },
+    { GBufferDataType::OBJECT_ID, "Object ID" },
+    { GBufferDataType::MATERIAL_ID, "Material ID" },
+    { GBufferDataType::POSITION, "Position" },
+};
+
+static ImGuiWindowFlags windowFlags= ImGuiWindowFlags_None | ImGuiWindowFlags_NoMove;
+static bool ui_hide = false;
 
 void initTextures() {
     glGenTextures(1, &displayImage);
@@ -199,8 +218,39 @@ bool init() {
     return true;
 }
 
-static ImGuiWindowFlags windowFlags= ImGuiWindowFlags_None | ImGuiWindowFlags_NoMove;
-static bool ui_hide = false;
+bool denoiseItemsGetter(void* data, int idx, const char** outText) {
+    auto& dataTypes = *static_cast<const std::unordered_map<Denoise::DenoiserType, std::string>*>(data);
+    if (dataTypes.empty()) {
+        return false;
+    }
+
+    auto key = static_cast<Denoise::DenoiserType>(idx);
+    auto iter = dataTypes.find(key);
+    if (iter == dataTypes.end()) {
+        *outText = dataTypes.begin()->second.c_str();
+    }
+    else {
+        *outText = iter->second.c_str();
+    }
+    return true;
+}
+
+bool gBufferItemsGetter(void* data, int idx, const char** outText) {
+    auto& dataTypes = *static_cast<const std::unordered_map<GBufferDataType, std::string>*>(data);
+    if (dataTypes.empty()) {
+        return false;
+    }
+
+    auto key = static_cast<GBufferDataType>(idx);
+    auto iter = dataTypes.find(key);
+    if (iter == dataTypes.end()) {
+        *outText = dataTypes.begin()->second.c_str();
+    }
+    else {
+        *outText = iter->second.c_str();
+    }
+    return true;
+}
 
 void drawGui(int windowWidth, int windowHeight) {
     // Dear imgui new frame
@@ -210,7 +260,7 @@ void drawGui(int windowWidth, int windowHeight) {
     ImGui::NewFrame();
 
     // Dear imgui define
-    ImVec2 minSize(300.f, 220.f);
+    ImVec2 minSize(300.f, 220.f); // (300.f, 300.f);
     ImVec2 maxSize((float)windowWidth * 0.5, (float)windowHeight * 0.3);
     ImGui::SetNextWindowSizeConstraints(minSize, maxSize);
 
@@ -227,15 +277,24 @@ void drawGui(int windowWidth, int windowHeight) {
     ImGui::SliderInt("Iterations", &ui_iterations, 1, startupIterations);
 
     ImGui::Checkbox("Denoise", &ui_denoise);
+    ImGui::Checkbox("Temporal", &ui_temporal);
+
+    ImGui::Combo("Denoise Type", &ui_denoiseTypeIndex, denoiseItemsGetter, const_cast<void*>(reinterpret_cast<const void*>(&denoiserTypeToString)), static_cast<int>(denoiserTypeToString.size()));
 
     ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 100);
-    ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 10.0f);
-    ImGui::SliderFloat("Normal Weight", &ui_normalWeight, 0.0f, 10.0f);
-    ImGui::SliderFloat("Position Weight", &ui_positionWeight, 0.0f, 10.0f);
+    ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 20.0f);
+    ImGui::SliderFloat("Normal Weight", &ui_normalWeight, 0.0f, 20.0f);
+    ImGui::SliderFloat("Position Weight", &ui_positionWeight, 0.0f, 50.0f);
 
     ImGui::Separator();
 
     ImGui::Checkbox("Show GBuffer", &ui_showGbuffer);
+
+    //ImGui::BeginCombo("GBuffer Data", "Preview?");
+    //ImGui::Combo("GBuffer Data", &ui_gBufferDataIndex, { "Time" });
+    //ImGui::EndCombo();
+
+    ImGui::Combo("GBuffer Data Type", &ui_gBufferDataIndex, gBufferItemsGetter, const_cast<void*>(reinterpret_cast<const void*>(&gBufferDataTypeToString)), static_cast<int>(gBufferDataTypeToString.size()));
 
     ImGui::Separator();
 
@@ -257,7 +316,7 @@ extern bool saveProfileLog;
 void mainLoop() { 
 #if ENABLE_PROFILE_LOG
     if (saveProfileLog) {
-        LogCore::ProfileLog::get().initProfile(renderState->imageName, "end", 32, 64, 1, std::ios_base::out);
+        LogCore::ProfileLog::get().initProfile(renderState->imageName, "end", 2, renderState->iterations - 2, 1, std::ios_base::out);
         std::cout << "Init log profile [" << renderState->imageName << "]" << std::endl;
     }
 #endif // ENABLE_PROFILE_LOG

@@ -1,8 +1,9 @@
 #include <iostream>
-#include "scene.h"
 #include <cstring>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/string_cast.hpp>
+#include "scene.h"
+#include "main.h"
 
 #define DEBUG_TOKENS 0//1
 
@@ -289,6 +290,11 @@ int Scene::loadCamera() {
     state.imageName += "_ADVPIPE";
 #endif // ENABLE_ADVANCED_PIPELINE
     state.imageName += "_depth" + std::to_string(state.traceDepth);
+
+    if (ui_denoise) {
+        state.imageName += "_denoise" + std::to_string(ui_denoiseTypeIndex);
+        state.imageName += "_filterSize" + std::to_string(ui_filterSize);
+    }
 
     std::string postprocessStr = "_PP";
     size_t activePP = 0;
