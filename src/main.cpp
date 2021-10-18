@@ -15,6 +15,10 @@ static bool middleMousePressed = false;
 static double lastX;
 static double lastY;
 
+// CHECKITOUT: simple UI parameters.
+// Search for any of these across the whole project to see how these are used,
+// or look at the diff for commit 1178307347e32da064dce1ef4c217ce0ca6153a8.
+// For all the gory GUI details, look at commit 5feb60366e03687bfc245579523402221950c9c5.
 int ui_iterations = 0;
 int startupIterations = 0;
 int lastLoopIterations = 0;
@@ -192,7 +196,14 @@ void runCuda() {
 #endif 
     }
 
-    if (ui_showGbuffer) {
+    if (ui_denoise) {
+        // Determine number of iterations by desired filter size
+        int num_iter = int(log2((ui_filterSize - 5) / 4.f)) + 1;
+
+        run_denoiser(ui_colorWeight, ui_normalWeight, ui_positionWeight, num_iter);
+        show_denoised_image(pbo_dptr, iteration);
+    }
+    else if (ui_showGbuffer) {
         showGBuffer(pbo_dptr);
     }
     else {

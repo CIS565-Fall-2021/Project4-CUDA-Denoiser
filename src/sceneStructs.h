@@ -96,12 +96,13 @@ struct PathSegment {
 // 1) color contribution computation
 // 2) BSDF evaluation: generate a new ray
 struct ShadeableIntersection {
-  float t;
-  glm::vec3 surfaceNormal;
-  int materialId;
-  glm::vec3 texture_color;
+    float t;
+    glm::vec3 surfaceNormal;
+    int materialId;
+    glm::vec3 texture_color;
 };
 
 struct GBufferPixel {
-    float t;
+    glm::vec3 pos;
+    glm::vec3 norm;
 };
