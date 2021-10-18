@@ -74,14 +74,48 @@ __global__ void filterImage(glm::ivec2 resolution,
 
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        glm::vec3 pix = image[index];
-        pix /= iter;
+        glm::ivec2 index2D{ x, y };
+        glm::vec2 res = resolution;
+
+        glm::vec3 pixP = image[index] / ((float)iter);
 
         // TODO: apply A-Trous Filter algorithm
+        glm::vec3 sum{ 0.0 };
+        float k = 0.0;
         for (int i = 0; i < 25; i++)
         {
+            // get q index
+            glm::ivec2 qIndex2D = index2D + denoise.offset[i] * denoise.stepWidth;
+            if (qIndex2D.x >= resolution.x || qIndex2D.y >= resolution.y || qIndex2D.x < 0 || qIndex2D.y < 0)
+                continue; // out of bounds 
+            int qIndex = qIndex2D.x + (qIndex2D.y * resolution.x);
+
+            glm::vec3 pixQ = image[qIndex] / ((float)iter);
+
+            // filter
+            float h_q = denoise.kernel[i];
+
+            // weights
+            glm::vec3 t = pixP - pixQ;
+            float dist2 = glm::dot(t, t);
+            float w_rt = glm::min(glm::exp(-dist2 / denoise.sigma2RT), 1.0f);
+
+            t = gBuffer[index].normal - gBuffer[qIndex].normal;
+            dist2 = glm::dot(t, t) / (denoise.stepWidth * denoise.stepWidth);
+            float w_n = glm::min(glm::exp(-dist2 / denoise.sigma2N), 1.0f);
+
+            t = gBuffer[index].position - gBuffer[qIndex].position;
+            dist2 = dot(t, t);
+            float w_x = glm::min(glm::exp(-dist2 / denoise.sigma2X), 1.0f);
+
+            float weight = w_rt * w_n * w_x;
+
+            // summation
+            sum += h_q * weight * pixQ;
+            k += h_q * weight;
         }
-        gBuffer[index].color = pix;
+        if (k > 0.0001)
+            gBuffer[index].color = sum / k;
     }
 }
 
@@ -498,30 +532,53 @@ void showDenoisedImage(uchar4* pbo, int iter, Denoise denoise)
         (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
     // Fill denoiser argument
-    // TODO: verify the kerne lis correct
-    for (int i = 0; i < 25; i += 5)
-    {
-        denoise.kernel[i] = .0625f;
-        denoise.kernel[i + 1] = .25f;
-        denoise.kernel[i + 2] = .375f;
-        denoise.kernel[i + 3] = .25f;
-        denoise.kernel[i + 4] = .0625f;
+    // apply gaussian kernel with sigma 1.0
+    denoise.kernel[0]  = .003765f; denoise.kernel[1]  = .015019f; denoise.kernel[2]  = .023792f; denoise.kernel[3]  = .015019f; denoise.kernel[4]  = .003765f;
+    denoise.kernel[5]  = .015019f; denoise.kernel[6]  = .059912f; denoise.kernel[7]  = .094907f; denoise.kernel[8]  = .059912f; denoise.kernel[9]  = .015019f;
+    denoise.kernel[10] = .023792f; denoise.kernel[11] = .094907f; denoise.kernel[12] = .150342f; denoise.kernel[13] = .094907f; denoise.kernel[14] = .023792f;
+    denoise.kernel[15] = .015019f; denoise.kernel[16] = .059912f; denoise.kernel[17] = .094907f; denoise.kernel[18] = .059912f; denoise.kernel[19] = .015019f;
+    denoise.kernel[20] = .003765f; denoise.kernel[21] = .015019f; denoise.kernel[22] = .023792f; denoise.kernel[23] = .015019f; denoise.kernel[24] = .003765f;
 
-        for (int j = 0; j < 5; j++)
-            denoise.offset[i + j] = glm::vec2{i - 2, j - 2};
-    }
-
+    // fill offset matrix
     for (int i = 0; i < 5; i++)
-    {
         for (int j = 0; j < 5; j++)
-        {
-            denoise.offset[i * 5 + j] = glm::vec2{ i - 2, j - 2 };
-        }
+            denoise.offset[i * 5 + j] = glm::ivec2{ i - 2, j - 2 };
+
+    // TODO: cannot access pointers to gpu memory
+    // calculate sigmas
+   /* glm::vec3 meanNorm{ 0.0 };
+    glm::vec3 meanPos{ 0.0 };
+    glm::vec3 meanColor{ 0.0 };
+    for (int i = 0; i < cam.resolution.x * cam.resolution.y; i++)
+    {
+        meanColor += dev_image[i]/((float)iter);
+        meanNorm += dev_gBuffer[i].normal;
+        meanPos += dev_gBuffer[i].position;
     }
+    meanColor /= (cam.resolution.x * cam.resolution.y);
+    meanNorm /= (cam.resolution.x * cam.resolution.y);
+    meanPos /= (cam.resolution.x * cam.resolution.y);
+
+    for (int i = 0; i < cam.resolution.x * cam.resolution.y; i++)
+    {
+        denoise.sigma2RT = glm::length((dev_image[i] / ((float)iter) - meanColor) * (dev_image[i] / ((float)iter) - meanColor));
+        denoise.sigma2N = glm::length((dev_gBuffer[i].normal - meanNorm) * (dev_gBuffer[i].normal - meanNorm));
+        denoise.sigma2X = glm::length((dev_gBuffer[i].position - meanPos) * (dev_gBuffer[i].position - meanPos));
+    }
+    denoise.sigma2RT /= (cam.resolution.x * cam.resolution.y);
+    denoise.sigma2N /= (cam.resolution.x * cam.resolution.y);
+    denoise.sigma2X /= (cam.resolution.x * cam.resolution.y);*/
+
+    // TODO: temporary; delete
+    denoise.sigma2RT = 1;
+    denoise.sigma2N = 1;
+    denoise.sigma2X = 100;
 
     for (int i = 1; i <= (denoise.kernelSize / 5); i <<= 1)
     {
         denoise.stepWidth = i;
+        /*if (i != 1)
+            denoise.sigma2RT = powf(2.f, (float)-i) * denoise.sigma2RT;*/
         filterImage << <blocksPerGrid2d, blockSize2d >> > 
             (cam.resolution, iter, denoise, dev_image, dev_gBuffer);
     }
