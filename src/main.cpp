@@ -29,11 +29,14 @@ int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
 bool ui_denoise = false;
-bool ui_temporal = false;
 int ui_filterSize = 8;//80;
 float ui_colorWeight = 0.6f;//0.45f;
 float ui_normalWeight = 0.9f;//0.35f;
 float ui_positionWeight = 10.f;//0.2f;
+bool ui_temporal = false;
+float ui_temporalAlpha = 0.2f;
+int ui_tAccRadius = 3;
+float ui_colorBoxK = 1.f;
 int ui_denoiseTypeIndex = static_cast<int>(Denoise::DenoiserType::A_TROUS);
 int ui_gBufferDataIndex = static_cast<int>(GBufferDataType::TIME);
 bool ui_saveAndExit = false;
@@ -198,7 +201,6 @@ void saveImage() {
 
 bool triggerClearIterationByUI() {
     static bool last_ui_denoise = ui_denoise;
-    static bool last_ui_temporal = ui_temporal;
     static int last_ui_filterSize = ui_filterSize;
     static int last_ui_denoiseTypeIndex = ui_denoiseTypeIndex;
 
@@ -211,12 +213,6 @@ bool triggerClearIterationByUI() {
     if (ui_denoise != last_ui_denoise) {
         last_ui_denoise = ui_denoise;
         result = true;
-    }
-    if (ui_temporal != last_ui_temporal) {
-        last_ui_temporal = ui_temporal;
-        if (ui_denoise) {
-            result = true;
-        }
     }
     if (ui_filterSize != last_ui_filterSize) {
         last_ui_filterSize = ui_filterSize;
@@ -248,6 +244,37 @@ bool triggerClearIterationByUI() {
             result = true;
         }
     }
+
+    static bool last_ui_temporal = ui_temporal;
+    static float last_ui_temporalAlpha = ui_temporalAlpha;
+    static float last_ui_colorBoxK = ui_colorBoxK;
+    static int last_ui_tAccRadius = ui_tAccRadius;
+
+    if (ui_temporal != last_ui_temporal) {
+        last_ui_temporal = ui_temporal;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_temporalAlpha != last_ui_temporalAlpha) {
+        last_ui_temporalAlpha = ui_temporalAlpha;
+        if (ui_denoise && ui_temporal) {
+            result = true;
+        }
+    }
+    if (ui_colorBoxK != last_ui_colorBoxK) {
+        last_ui_colorBoxK = ui_colorBoxK;
+        if (ui_denoise && ui_temporal) {
+            result = true;
+        }
+    }
+    if (ui_tAccRadius != last_ui_tAccRadius) {
+        last_ui_tAccRadius = ui_tAccRadius;
+        if (ui_denoise && ui_temporal) {
+            result = true;
+        }
+    }
+
     return result;
 }
 
@@ -292,7 +319,7 @@ void runCuda() {
     uchar4 *pbo_dptr = NULL;
     cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
-    if (iteration < ui_iterations) {
+    if (iteration < ui_iterations || ui_temporal) {
         iteration++;
 
         // execute the kernel

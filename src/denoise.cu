@@ -136,10 +136,10 @@ __global__ void denoise_A_Torus_EdgeAvoiding_OneSweep(Texture2D<glm::vec3> outFr
                 float logNormalWeight = getLogNormalWeight(gbp0.surfaceNormal, gb1.surfaceNormal, param.normalWeight * param.normalWeight);
                 float logPositionWeight = getLogPositionWeight(gbp0.position, gb1.position, param.positionWeight * param.positionWeight);
 
-                if (y != idxY && x != idxX && (param.colorWeight == 0.f || param.normalWeight == 0.f || param.positionWeight == 0.f)) {
+                if (y != idxY && x != idxX && (param.colorWeight == 0.f || param.normalWeight == 0.f || param.positionWeight == 0.f || gbp0.geometryId < 0)) {
                     continue;
                 }
-                
+
                 weight *= __expf(logColorWeight + logNormalWeight + logPositionWeight);
 
                 totalWeight += weight;

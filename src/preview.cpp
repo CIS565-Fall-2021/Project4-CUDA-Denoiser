@@ -277,7 +277,6 @@ void drawGui(int windowWidth, int windowHeight) {
     ImGui::SliderInt("Iterations", &ui_iterations, 1, startupIterations);
 
     ImGui::Checkbox("Denoise", &ui_denoise);
-    ImGui::Checkbox("Temporal", &ui_temporal);
 
     ImGui::Combo("Denoise Type", &ui_denoiseTypeIndex, denoiseItemsGetter, const_cast<void*>(reinterpret_cast<const void*>(&denoiserTypeToString)), static_cast<int>(denoiserTypeToString.size()));
 
@@ -285,6 +284,13 @@ void drawGui(int windowWidth, int windowHeight) {
     ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 20.0f);
     ImGui::SliderFloat("Normal Weight", &ui_normalWeight, 0.0f, 20.0f);
     ImGui::SliderFloat("Position Weight", &ui_positionWeight, 0.0f, 50.0f);
+
+    ImGui::Separator();
+
+    ImGui::Checkbox("Temporal", &ui_temporal);
+    ImGui::SliderFloat("Alpha", &ui_temporalAlpha, 0.f, 1.f);
+    ImGui::SliderInt("Acc Radius", &ui_tAccRadius, 1, 10);
+    ImGui::SliderFloat("Color Box", &ui_colorBoxK, 0.f, 5.f);
 
     ImGui::Separator();
 

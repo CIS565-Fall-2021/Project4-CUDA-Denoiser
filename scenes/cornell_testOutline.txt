@@ -2,7 +2,7 @@
 CAMERA
 RES         1280 760
 FOVY        45
-ITERATIONS  10000
+ITERATIONS  50
 DEPTH       8
 FILE        cornell_testOutline
 EYE         0.0 5 8.5
