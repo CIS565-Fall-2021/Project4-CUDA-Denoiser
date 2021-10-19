@@ -1,7 +1,7 @@
-CUDA Path Tracer
-================
+CUDA Denoiser For CUDA Path Tracer
+==================================
 
-**University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 3**
+**University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 4**
 
 * Paul (San) Jewell
     * [LinkedIn](https://www.linkedin.com/in/paul-jewell-2aba7379), [work website](

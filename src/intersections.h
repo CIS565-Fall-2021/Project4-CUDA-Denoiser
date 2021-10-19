@@ -20,7 +20,6 @@ __host__ __device__ inline unsigned int utilhash(unsigned int a) {
     return a;
 }
 
-// CHECKITOUT
 /**
  * Compute a point at parameter value `t` on ray `r`.
  * Falls slightly short so that it doesn't intersect the object it's hitting.
@@ -162,7 +161,6 @@ __host__ __device__ float boxIntersectionTest(Geom box, Ray r,
     return -1;
 }
 
-// CHECKITOUT
 /**
  * Test intersection between a ray and a transformed sphere. Untransformed,
  * the sphere always has radius 0.5 and is centered at the origin.

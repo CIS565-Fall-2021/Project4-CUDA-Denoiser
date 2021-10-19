@@ -134,3 +134,24 @@ void scatterRay(
   }
 
 }
+
+/**
+ * Simple ray scattering with diffuse and perfect specular support.
+ */
+__host__ __device__
+void scatterRay2(
+        PathSegment & pathSegment,
+        glm::vec3 intersect,
+        glm::vec3 normal,
+        const Material &m,
+        thrust::default_random_engine &rng) {
+  glm::vec3 newDirection;
+  if (m.hasReflective) {
+    newDirection = glm::reflect(pathSegment.ray.direction, normal);
+  } else {
+    newDirection = calculateRandomDirectionInHemisphere(normal, rng);
+  }
+
+  pathSegment.ray.direction = newDirection;
+  pathSegment.ray.origin = intersect + (newDirection * 0.0001f);
+}
