@@ -23,6 +23,7 @@ int ui_iterations = 0;
 int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
+int ui_GbufferMode = GBUFFER_NORMAL;  //switch between different gbuffers
 bool ui_denoise = false;
 int ui_filterSize = 80;
 float ui_colorWeight = 0.45f;
@@ -162,11 +163,12 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
+        bool denoise = iteration == ui_iterations && ui_denoise;
+        pathtrace(frame, iteration, denoise, ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight);
     }
 
     if (ui_showGbuffer) {
-      showGBuffer(pbo_dptr);
+      showGBuffer(pbo_dptr, ui_GbufferMode);
     } else {
       showImage(pbo_dptr, iteration);
     }
@@ -185,6 +187,15 @@ void runCuda() {
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (action == GLFW_PRESS) {
       switch (key) {
+      case GLFW_KEY_1:
+        ui_GbufferMode = GBUFFER_NORMAL;
+        break;
+      case GLFW_KEY_2:
+        ui_GbufferMode = GBUFFER_POSITION;
+        break;
+      case GLFW_KEY_3:
+        ui_GbufferMode = GBUFFER_TIME;
+        break;
       case GLFW_KEY_ESCAPE:
         saveImage();
         glfwSetWindowShouldClose(window, GL_TRUE);
