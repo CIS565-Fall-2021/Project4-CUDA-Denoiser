@@ -197,8 +197,8 @@ void drawGui(int windowWidth, int windowHeight)
     ImGui::NewFrame();
 
     // Dear imgui define
-    ImVec2 minSize(300.f, 200.f);
-    ImVec2 maxSize((float)windowWidth * 0.5, (float)windowHeight * 0.25);
+    ImVec2 minSize(300.f, 220.f);
+    ImVec2 maxSize((float)windowWidth * 0.5, (float)windowHeight * 0.3);
     ImGui::SetNextWindowSizeConstraints(minSize, maxSize);
 
     ImGui::SetNextWindowPos(ui_hide ? ImVec2(-1000.f, -1000.f) : ImVec2(0.0f, 0.0f));
@@ -212,6 +212,8 @@ void drawGui(int windowWidth, int windowHeight)
         ui_hide = !ui_hide;
     }
 
+    ImGui::SliderInt("Iterations", &ui_iterations, 1, startupIterations);
+
     ImGui::Checkbox("Denoise", &ui_denoise);
 
     ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 100);
@@ -220,6 +222,12 @@ void drawGui(int windowWidth, int windowHeight)
     ImGui::SliderFloat("Position Weight", &ui_positionWeight, 0.0f, 10.0f);
 
     ImGui::Separator();
+
+    if (ImGui::Button("Save image and exit"))
+    {
+        ui_saveAndExit = true;
+    }
+
 
     ImGui::End();
 
