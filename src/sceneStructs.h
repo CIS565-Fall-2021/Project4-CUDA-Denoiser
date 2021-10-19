@@ -116,3 +116,8 @@ struct ShadeableIntersection
       return materialId < other.materialId;
   }
 };
+
+struct GBufferPixel
+{
+    float t;
+};
