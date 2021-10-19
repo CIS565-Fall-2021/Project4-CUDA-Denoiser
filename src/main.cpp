@@ -1,6 +1,7 @@
 #include "main.h"
 #include "preview.h"
 #include <cstring>
+#include <chrono>
 
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
@@ -27,15 +28,16 @@ bool ui_showGbuffer = false;
 bool ui_denoise = false;
 bool lastLoopDenoise = false;
 
-int ui_filterSize = 80;
+int ui_filterSize = 5;
+int lastLoopFilterSize;
 
-float ui_colorWeight = 0.45f;
+float ui_colorWeight = 0.572f;
 float lastLoopColorWeight;
 
-float ui_normalWeight = 0.35f;
+float ui_normalWeight = 0.021f;
 float lastLoopNormalWeight;
 
-float ui_positionWeight = 0.2f;
+float ui_positionWeight = 0.789f;
 float lastLoopPositionWeight;
 
 bool ui_saveAndExit = false;
@@ -54,6 +56,8 @@ int iteration;
 
 int width;
 int height;
+
+long duration_total_us;
 
 //-------------------------------
 //-------------MAIN--------------
@@ -133,6 +137,11 @@ void saveImage() {
 bool denoisingSettingChanged() {
     bool settingChanged = false;
 
+    if (lastLoopFilterSize != ui_filterSize) {
+        lastLoopFilterSize = ui_filterSize;
+        settingChanged = true;
+    }
+
     if (lastLoopColorWeight != ui_colorWeight) {
         lastLoopColorWeight = ui_colorWeight;
         settingChanged = true;
@@ -182,7 +191,6 @@ void runCuda() {
 
     if (iteration == 0) {
         pathtraceFree();
-
         pathtraceInit(scene);
     }
 
@@ -194,7 +202,15 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
+
+        auto start = chrono::high_resolution_clock::now();
         pathtrace(frame, iteration);
+        duration_total_us += chrono::duration_cast<chrono::microseconds>(chrono::high_resolution_clock::now() - start).count();
+
+        if (iteration == ui_iterations) {
+            std::cout << "Pathtrace avg duration " << duration_total_us / ui_iterations << std::endl;
+            duration_total_us = 0;
+        }
     }
 
     if (ui_denoise && iteration == ui_iterations) {
@@ -204,7 +220,12 @@ void runCuda() {
             lastLoopDenoise = ui_denoise;
             denoiseFree();
             denoiseInit(scene);
-            denoise(ui_colorWeight, ui_normalWeight, ui_positionWeight);
+
+            auto start = chrono::high_resolution_clock::now();
+            denoise(ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+            auto duration_us = chrono::duration_cast<chrono::microseconds>(chrono::high_resolution_clock::now() - start).count();
+
+            std::cout << "Denoising duration " << duration_us << std::endl;
         }
     }
 
@@ -215,7 +236,7 @@ void runCuda() {
     if (ui_showGbuffer) {
         showGBuffer(pbo_dptr);
     } else if (ui_denoise) {
-        showDenoise(pbo_dptr);
+        showDenoise(pbo_dptr, iteration);
     } else {
         showImage(pbo_dptr, iteration);
     }
