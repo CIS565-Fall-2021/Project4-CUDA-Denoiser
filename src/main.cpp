@@ -175,7 +175,7 @@ void runCuda(int frame) {
 
     // execute the kernel
     //int frame = 0;
-    pathtrace(frame, iteration);
+    pathtrace(pbo_dptr, frame, iteration);
   }
 
   if (ui_showGbuffer) {

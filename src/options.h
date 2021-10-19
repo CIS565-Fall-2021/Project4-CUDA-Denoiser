@@ -10,7 +10,7 @@
  */
 
 // enable the denoiser
-#define ENABLE_OIDN 1
+#define ENABLE_OIDN 0
 #define OIDN_THREADS 12  // note: CPU threads to use, NOT GPU
 
 #define ENABLE_MATERIAL_SORTING 0
@@ -26,7 +26,7 @@
 
 // this can be zero, to turn off, or numbers higher than one for more blur effect
 // I would recommend to DISABLE THIS, when using OIDN
-#define ANTIALIAS_MULTIPLIER 0.3
+#define ANTIALIAS_MULTIPLIER 0.1
 
 // When loading .OBJ files, max bounce count for each ray is not embedded, adjust this value to set your preference
 #define MAX_BOUNCES 8
