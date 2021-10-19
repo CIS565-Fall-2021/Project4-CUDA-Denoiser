@@ -23,11 +23,21 @@ int ui_iterations = 0;
 int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
+
 bool ui_denoise = false;
+bool lastLoopDenoise = false;
+
 int ui_filterSize = 80;
+
 float ui_colorWeight = 0.45f;
+float lastLoopColorWeight;
+
 float ui_normalWeight = 0.35f;
+float lastLoopNormalWeight;
+
 float ui_positionWeight = 0.2f;
+float lastLoopPositionWeight;
+
 bool ui_saveAndExit = false;
 
 static bool camchanged = true;
@@ -120,15 +130,36 @@ void saveImage() {
     //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
+bool denoisingSettingChanged() {
+    bool settingChanged = false;
+
+    if (lastLoopColorWeight != ui_colorWeight) {
+        lastLoopColorWeight = ui_colorWeight;
+        settingChanged = true;
+    }
+
+    if (lastLoopNormalWeight != ui_normalWeight) {
+        lastLoopNormalWeight = ui_normalWeight;
+        settingChanged = true;
+    }
+
+    if (lastLoopPositionWeight != ui_positionWeight) {
+        lastLoopPositionWeight = ui_positionWeight;
+        settingChanged = true;
+    }
+
+    return settingChanged;
+}
+
 void runCuda() {
     if (lastLoopIterations != ui_iterations) {
-      lastLoopIterations = ui_iterations;
-      camchanged = true;
+        lastLoopIterations = ui_iterations;
+        camchanged = true;
     }
 
     if (camchanged) {
         iteration = 0;
-        Camera &cam = renderState->camera;
+        Camera& cam = renderState->camera;
         cameraPosition.x = zoom * sin(phi) * sin(theta);
         cameraPosition.y = zoom * cos(theta);
         cameraPosition.z = zoom * cos(phi) * sin(theta);
@@ -144,17 +175,18 @@ void runCuda() {
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
         camchanged = false;
-      }
+    }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
 
     if (iteration == 0) {
         pathtraceFree();
+
         pathtraceInit(scene);
     }
 
-    uchar4 *pbo_dptr = NULL;
+    uchar4* pbo_dptr = NULL;
     cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
     if (iteration < ui_iterations) {
@@ -165,10 +197,27 @@ void runCuda() {
         pathtrace(frame, iteration);
     }
 
+    if (ui_denoise && iteration == ui_iterations) {
+        if (denoisingSettingChanged() || lastLoopDenoise != ui_denoise) {
+            std::cout << "Need to denoise!" << std::endl;
+
+            lastLoopDenoise = ui_denoise;
+            denoiseFree();
+            denoiseInit(scene);
+            denoise(ui_colorWeight, ui_normalWeight, ui_positionWeight);
+        }
+    }
+
+    if (lastLoopDenoise != ui_denoise) {
+        lastLoopDenoise = ui_denoise;
+    }
+
     if (ui_showGbuffer) {
-      showGBuffer(pbo_dptr);
+        showGBuffer(pbo_dptr);
+    } else if (ui_denoise) {
+        showDenoise(pbo_dptr);
     } else {
-      showImage(pbo_dptr, iteration);
+        showImage(pbo_dptr, iteration);
     }
 
     // unmap buffer object

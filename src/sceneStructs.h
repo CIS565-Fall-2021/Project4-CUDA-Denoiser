@@ -66,17 +66,15 @@ struct PathSegment {
 	int remainingBounces;
 };
 
-// Use with a corresponding PathSegment to do:
-// 1) color contribution computation
-// 2) BSDF evaluation: generate a new ray
 struct ShadeableIntersection {
-  float t;
-  glm::vec3 surfaceNormal;
-  int materialId;
+    float t;
+    glm::vec3 surfaceNormal;
+    int materialId;
 };
 
-// CHECKITOUT - a simple struct for storing scene geometry information per-pixel.
-// What information might be helpful for guiding a denoising filter?
 struct GBufferPixel {
-  float t;
+    float t;
+    glm::vec3 normal;
+    glm::vec3 position;
+    glm::vec3 color;
 };
