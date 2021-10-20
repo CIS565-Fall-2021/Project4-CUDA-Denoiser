@@ -144,9 +144,9 @@ __global__ void gbufferToPBO_Atrous(uchar4* pbo, glm::ivec2 resolution, GBufferP
 		glm::ivec3 color;
 
 
-		color.x = glm::clamp((int)(pix.x  * 255.0), 0, 255);
-		color.y = glm::clamp((int)(pix.y * 255.0), 0, 255);
-		color.z = glm::clamp((int)(pix.z * 255.0), 0, 255);
+		color.x = glm::clamp((int)(pix.x/10  * 255.0), 0, 255);
+		color.y = glm::clamp((int)(pix.y/10  * 255.0), 0, 255);
+		color.z = glm::clamp((int)(pix.z/10  * 255.0), 0, 255);
 ;
 		pbo[index].w = 0;
 		pbo[index].x = color.x;
@@ -167,7 +167,7 @@ static GBufferPixel* dev_gBuffer = NULL;
 static float* dev_gausKernel = NULL;
 static glm::vec2* dev_offsetKernel = NULL;
 static glm::vec3* dev_TrousImage = NULL;
-static glm::vec3* dev_IntermediaryImage = NULL;
+//static glm::vec3* dev_IntermediaryImage = NULL;
 
 void generateOffsetKern()
 {
@@ -213,7 +213,7 @@ void pathtraceInit(Scene* scene) {
 	cudaMemcpy(dev_offsetKernel, offsetKernel, 25 * sizeof(glm::vec2), cudaMemcpyHostToDevice);
 
 	cudaMalloc(&dev_TrousImage, pixelcount * sizeof(glm::vec3));
-	cudaMalloc(&dev_IntermediaryImage, pixelcount * sizeof(glm::vec3));
+	/*cudaMalloc(&dev_IntermediaryImage, pixelcount * sizeof(glm::vec3));*/
 
 	checkCUDAError("pathtraceInit");
 }
@@ -230,7 +230,7 @@ void pathtraceFree() {
 	cudaFree(dev_gausKernel);
 	cudaFree(dev_offsetKernel);
 	cudaFree(dev_TrousImage);
-	cudaFree(dev_IntermediaryImage);
+	/*cudaFree(dev_IntermediaryImage);*/
 	checkCUDAError("pathtraceFree");
 }
 
@@ -275,16 +275,16 @@ __global__ void CopyDataToInterImage(
 	{
 
 		PathSegment iterationPath = pathSegments[path_index];
-		glm::vec3 currColor = iterationPath.color;
-		dev_interImage[iterationPath.pixelIndex] = iterationPath.color / (float)iter;
+		glm::vec3 currColor = dev_interImage[iterationPath.pixelIndex] + iterationPath.color;
+		dev_interImage[iterationPath.pixelIndex] += iterationPath.color ;
 	}
 }
 
-	__global__ void GenerateATrousImage(
-		int iter, int num_paths,
+	__global__ void GenerateGaussianBlur(
+		int num_paths,
 		float* dev_gausKernel, glm::vec2 *dev_offsetKernel,
-		glm::vec3* dev_interImage, glm::vec3 *dev_TrousImage,
-		GBufferPixel * gbuf, const Camera cam
+		glm::vec3* dev_colorImage, glm::vec3 *dev_TrousImage,
+		const Camera cam
 	)
 	{
 
@@ -292,9 +292,9 @@ __global__ void CopyDataToInterImage(
 
 		if (index < num_paths)
 		{
-			//glm::vec3 currColor =glm::vec3(0.0f);
-			glm::vec3 currColor = dev_interImage[index];
-		/*	for (int i = 0; i < 25; i++)
+			glm::vec3 currColor =glm::vec3(0.0f);
+			//glm::vec3 currColor = dev_colorImage[index];
+			for (int i = 0; i < 25; i++)
 			{
 
 				float offsetX = dev_offsetKernel[i].x;
@@ -303,14 +303,46 @@ __global__ void CopyDataToInterImage(
 				int offsetColorIdx = index + (offsetY * cam.resolution.x + offsetX);
 				if (offsetColorIdx >= 0 && offsetColorIdx < num_paths)
 				{
-					glm::vec3 newColor = dev_interImage[offsetColorIdx];
+					glm::vec3 newColor = dev_colorImage[offsetColorIdx];
 					currColor += newColor * dev_gausKernel[i];
 				}
-			}*/
+			}
 			dev_TrousImage[index] = currColor;
 		}
 
 	}
+
+	//__global__ void GenerateGaussianBlur(
+	//	int num_paths,
+	//	float* dev_gausKernel, glm::vec2* dev_offsetKernel,
+	//	glm::vec3* dev_colorImage, glm::vec3* dev_TrousImage,
+	//	GBufferPixel* gbuf, const Camera cam
+	//)
+	//{
+
+	//	int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+	//	if (index < num_paths)
+	//	{
+	//		glm::vec3 currColor = glm::vec3(0.0f);
+	//		//glm::vec3 currColor = dev_colorImage[index];
+	//		for (int i = 0; i < 25; i++)
+	//		{
+
+	//			float offsetX = dev_offsetKernel[i].x;
+	//			float offsetY = dev_offsetKernel[i].y;
+	//			float gausValue = dev_gausKernel[i];
+	//			int offsetColorIdx = index + (offsetY * cam.resolution.x + offsetX);
+	//			if (offsetColorIdx >= 0 && offsetColorIdx < num_paths)
+	//			{
+	//				glm::vec3 newColor = dev_colorImage[offsetColorIdx];
+	//				currColor += newColor * dev_gausKernel[i];
+	//			}
+	//		}
+	//		dev_TrousImage[index] = currColor;
+	//	}
+
+	//}
 
 
 	__global__ void computeIntersections(
@@ -538,11 +570,12 @@ __global__ void CopyDataToInterImage(
 			if (depth == 0) {
 				generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer);
 			}
+		/*	if (depth == traceDepth) {
+				CopyDataToInterImage << <numblocksPathSegmentTracing, blockSize1d >> > (iter, num_paths, dev_paths, dev_IntermediaryImage);
 
-			CopyDataToInterImage << <numblocksPathSegmentTracing, blockSize1d >> > (iter, num_paths, dev_paths,  dev_IntermediaryImage);
-
-			GenerateATrousImage << <numblocksPathSegmentTracing, blockSize1d >> > (depth, num_paths, dev_gausKernel, dev_offsetKernel,
-				dev_IntermediaryImage, dev_TrousImage, dev_gBuffer, cam);
+				GenerateATrousImage << <numblocksPathSegmentTracing, blockSize1d >> > (depth, num_paths, dev_gausKernel, dev_offsetKernel,
+					dev_IntermediaryImage, dev_TrousImage, dev_gBuffer, cam);
+			}*/
 
 			depth++;
 			shadeSimpleMaterials << <numblocksPathSegmentTracing, blockSize1d >> > (
@@ -554,11 +587,14 @@ __global__ void CopyDataToInterImage(
 				);
 			iterationComplete = depth == traceDepth;
 		}
-
 		// Assemble this iteration and apply it to the image
 		dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
 		finalGather << <numBlocksPixels, blockSize1d >> > (num_paths, dev_image, dev_paths);
+		GenerateGaussianBlur << <numBlocksPixels, blockSize1d >> > (num_paths, dev_gausKernel, dev_offsetKernel,
+			dev_image, dev_TrousImage, cam);
 
+		//GenerateATrousImage << <numBlocksPixels, blockSize1d >> > (depth, num_paths, dev_gausKernel, dev_offsetKernel,
+		//	dev_image, dev_TrousImage, dev_gBuffer, cam);
 		///////////////////////////////////////////////////////////////////////////
 
 		// CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
@@ -582,8 +618,8 @@ __global__ void CopyDataToInterImage(
 		// CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
 		//gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
 		//gbufferToPBO_Normals<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
-		gbufferToPBO_Position <<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
-		//gbufferToPBO_Atrous << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer, dev_TrousImage);
+		//gbufferToPBO_Position <<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
+		gbufferToPBO_Atrous << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer, dev_TrousImage);
 	}
 
 	void showImage(uchar4 * pbo, int iter) {
