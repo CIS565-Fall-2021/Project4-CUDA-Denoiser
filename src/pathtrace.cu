@@ -324,13 +324,51 @@ __global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterati
 	}
 }
 
-__global__ void denoise(int n, GBufferPixel* gbuff, glm::vec3* image, glm::vec3 * dnImage) {
+__global__ void denoise(int n, GBufferPixel* gbuff, glm::vec3* image, glm::vec3 * dnImage, int imageWidth) {
 	int index = (blockIdx.x * blockDim.x) + threadIdx.x;
 
     if (index < n)
     {
+		
+        glm::vec3 colSum = glm::vec3(0.0f);
+        // hardcode a 5x5 Gaussian filter
+        float GaussianFilter[5][5] = { {1,  4, 6,  4,  1},
+                                       {4, 16, 24, 16, 4},
+                                       {6, 24, 36, 24, 6},
+                                       {4, 16, 24, 16, 4},
+                                       {1,  4,  6,  4, 1} };
+
+        // a way to convert from 2d pixel space to the 1d pixel array we have
+		int uStepIm = 1;
+		int vStepIm = imageWidth;
+
+        // the relative offset from the center pixel in the image
+        // e.x. -2, -2 is two pixels left and two pixels up in screenspace
+        int imStartX = -2;
+        int imStartY = -2;
+
+        // the cell count in 2d, starting in the upper left corner of
+        // our 5x5 filter
+        for (int y = 0; y < 5; y++) {
+            for (int x = 0; x < 5; x++) {
+                int imX = (imStartX + x) * uStepIm;
+                int imY = (imStartY + y) * vStepIm;
+
+                int i = index + imX + imY;
+                if (i < 0 || i >= n) {
+                    continue;
+                }
+
+                float gVal = GaussianFilter[y][x];
+
+                colSum += gVal * image[i];
+            }
+        }
+
+        dnImage[index] = colSum / 256.0f;
+
         //bring denoise
-        dnImage[index] = glm::vec3((float)index / n);
+        //dnImage[index] = glm::vec3((float)index / n);
     }
 }
 
@@ -436,7 +474,7 @@ void pathtrace(int frame, int iter) {
 	finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
 
     ///////////////////////////////////////////////////////////////////////////
-    denoise <<<numBlocksPixels, blockSize1d>>>(num_paths, dev_gBuffer, dev_image, dev_dnImage);
+    denoise <<<numBlocksPixels, blockSize1d>>>(num_paths, dev_gBuffer, dev_image, dev_dnImage, cam.resolution.x);
 
     // CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
     // Otherwise, screenshots are also acceptable.
@@ -467,7 +505,7 @@ void showDenoise(uchar4* pbo, int iter) {
             (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
     // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
-    sendDenoiseToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_dnImage);
+    sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_dnImage);
 }
 
 void showImage(uchar4* pbo, int iter) {
