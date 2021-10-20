@@ -13,7 +13,7 @@ struct Denoise
 	glm::ivec2 offset[25];
 	int stepWidth;
 
-	float sigma2RT, sigma2N, sigma2X;
+	//float sigma2RT, sigma2N, sigma2X;
 };
 
 void pathtraceInit(Scene *scene);

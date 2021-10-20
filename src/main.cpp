@@ -120,6 +120,7 @@ void saveImage() {
     //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
+static bool denoised = false;
 void runCuda() {
     if (lastLoopIterations != ui_iterations) {
       lastLoopIterations = ui_iterations;
@@ -144,6 +145,9 @@ void runCuda() {
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
         camchanged = false;
+
+        denoised = false;
+        ui_denoise = false;
       }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
@@ -165,7 +169,7 @@ void runCuda() {
         pathtrace(frame, iteration);
     }
 
-    if (ui_denoise)
+    if (ui_denoise && !denoised)
     {
         Denoise denoise;
         denoise.kernelSize = ui_filterSize;
@@ -174,6 +178,7 @@ void runCuda() {
         denoise.normalWeight = ui_normalWeight;
 
         showDenoisedImage(pbo_dptr, iteration, denoise);
+        denoised = true;
     }
     else if (ui_showGbuffer)
       showGBuffer(pbo_dptr);

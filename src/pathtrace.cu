@@ -77,7 +77,7 @@ __global__ void filterImage(glm::ivec2 resolution,
         glm::ivec2 index2D{ x, y };
         glm::vec2 res = resolution;
 
-        glm::vec3 pixP = image[index] / ((float)iter);
+        glm::vec3 pixP = gBuffer[index].color;
 
         // TODO: apply A-Trous Filter algorithm
         glm::vec3 sum{ 0.0 };
@@ -90,25 +90,27 @@ __global__ void filterImage(glm::ivec2 resolution,
                 continue; // out of bounds 
             int qIndex = qIndex2D.x + (qIndex2D.y * resolution.x);
 
-            glm::vec3 pixQ = image[qIndex] / ((float)iter);
+            glm::vec3 pixQ = gBuffer[qIndex].color;
 
             // filter
             float h_q = denoise.kernel[i];
 
             // weights
-            glm::vec3 t = pixP - pixQ;
-            float dist2 = glm::dot(t, t);
-            float w_rt = glm::min(glm::exp(-dist2 / denoise.sigma2RT), 1.0f);
+            //glm::vec3 t = image[index] - image[qIndex];
+            //float dist2 = glm::dot(t, t);
+            //float w_rt = glm::min(glm::exp(-dist2 / denoise.colorWeight), 1.0f);
 
-            t = gBuffer[index].normal - gBuffer[qIndex].normal;
-            dist2 = glm::dot(t, t) / (denoise.stepWidth * denoise.stepWidth);
-            float w_n = glm::min(glm::exp(-dist2 / denoise.sigma2N), 1.0f);
+            //t = gBuffer[index].normal - gBuffer[qIndex].normal;
+            //dist2 = glm::dot(t, t) / (denoise.stepWidth * denoise.stepWidth);
+            //float w_n = glm::min(glm::exp(-dist2 / denoise.normalWeight), 1.0f);
 
-            t = gBuffer[index].position - gBuffer[qIndex].position;
-            dist2 = dot(t, t);
-            float w_x = glm::min(glm::exp(-dist2 / denoise.sigma2X), 1.0f);
+            //t = gBuffer[index].position - gBuffer[qIndex].position;
+            //dist2 = dot(t, t);
+            //float w_x = glm::min(glm::exp(-dist2 / denoise.positionWeight), 1.0f);
 
-            float weight = w_rt * w_n * w_x;
+            //float weight = w_rt * w_n * w_x;
+            ////float weight = denoise.colorWeight * denoise.normalWeight * denoise.positionWeight;
+            float weight = 1;
 
             // summation
             sum += h_q * weight * pixQ;
@@ -364,15 +366,30 @@ __global__ void generateGBuffer (
   int num_paths,
   ShadeableIntersection* shadeableIntersections,
 	PathSegment* pathSegments,
-  GBufferPixel* gBuffer) {
+  GBufferPixel* gBuffer, bool color) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < num_paths)
   {
-    gBuffer[idx].t = shadeableIntersections[idx].t;
-    gBuffer[idx].position = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
-    gBuffer[idx].normal = shadeableIntersections[idx].surfaceNormal;
-    gBuffer[idx].color = pathSegments[idx].color;
+      if (!color)
+      {
+          gBuffer[idx].t = shadeableIntersections[idx].t;
+          gBuffer[idx].position = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
+          gBuffer[idx].normal = shadeableIntersections[idx].surfaceNormal;
+       }
+      else
+        gBuffer[idx].color = pathSegments[idx].color;
   }
+}
+
+__global__ void transferGBufferColor(
+    glm::ivec2 resolution, int iter, GBufferPixel* gBuffer, glm::vec3 *image) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        image[index] = gBuffer[index].color * (float)iter;
+    }
 }
 
 // Add the current iteration's output to the overall image
@@ -477,12 +494,15 @@ void pathtrace(int frame, int iter) {
   );
 
   if (depth == 0) {
-      generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer);
+      generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer, false);
   }
 
   depth++;
 
   iterationComplete = depth == traceDepth;
+
+  if (iterationComplete)
+      generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer, true);
 	}
 
   // Assemble this iteration and apply it to the image
@@ -570,9 +590,9 @@ void showDenoisedImage(uchar4* pbo, int iter, Denoise denoise)
     denoise.sigma2X /= (cam.resolution.x * cam.resolution.y);*/
 
     // TODO: temporary; delete
-    denoise.sigma2RT = 1;
+ /*   denoise.sigma2RT = 1;
     denoise.sigma2N = 1;
-    denoise.sigma2X = 100;
+    denoise.sigma2X = 100;*/
 
     for (int i = 1; i <= (denoise.kernelSize / 5); i <<= 1)
     {
@@ -583,5 +603,7 @@ void showDenoisedImage(uchar4* pbo, int iter, Denoise denoise)
             (cam.resolution, iter, denoise, dev_image, dev_gBuffer);
     }
     // Send results to OpenGL buffer for rendering
-    gbufferColorToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer);
+    transferGBufferColor << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, iter, dev_gBuffer, dev_image);
+    //gbufferColorToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer);
+    //sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
 }
