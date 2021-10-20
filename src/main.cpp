@@ -1,6 +1,7 @@
 #include "main.h"
 #include "preview.h"
 #include <cstring>
+#include <chrono>
 
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
@@ -23,11 +24,22 @@ int ui_iterations = 0;
 int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
+
 bool ui_denoise = false;
-int ui_filterSize = 80;
-float ui_colorWeight = 0.45f;
-float ui_normalWeight = 0.35f;
-float ui_positionWeight = 0.2f;
+bool lastLoopDenoise = false;
+
+int ui_filterSize = 5;
+int lastLoopFilterSize;
+
+float ui_colorWeight = 0.572f;
+float lastLoopColorWeight;
+
+float ui_normalWeight = 0.021f;
+float lastLoopNormalWeight;
+
+float ui_positionWeight = 0.789f;
+float lastLoopPositionWeight;
+
 bool ui_saveAndExit = false;
 
 static bool camchanged = true;
@@ -44,6 +56,8 @@ int iteration;
 
 int width;
 int height;
+
+long duration_total_us;
 
 //-------------------------------
 //-------------MAIN--------------
@@ -120,15 +134,41 @@ void saveImage() {
     //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
+bool denoisingSettingChanged() {
+    bool settingChanged = false;
+
+    if (lastLoopFilterSize != ui_filterSize) {
+        lastLoopFilterSize = ui_filterSize;
+        settingChanged = true;
+    }
+
+    if (lastLoopColorWeight != ui_colorWeight) {
+        lastLoopColorWeight = ui_colorWeight;
+        settingChanged = true;
+    }
+
+    if (lastLoopNormalWeight != ui_normalWeight) {
+        lastLoopNormalWeight = ui_normalWeight;
+        settingChanged = true;
+    }
+
+    if (lastLoopPositionWeight != ui_positionWeight) {
+        lastLoopPositionWeight = ui_positionWeight;
+        settingChanged = true;
+    }
+
+    return settingChanged;
+}
+
 void runCuda() {
     if (lastLoopIterations != ui_iterations) {
-      lastLoopIterations = ui_iterations;
-      camchanged = true;
+        lastLoopIterations = ui_iterations;
+        camchanged = true;
     }
 
     if (camchanged) {
         iteration = 0;
-        Camera &cam = renderState->camera;
+        Camera& cam = renderState->camera;
         cameraPosition.x = zoom * sin(phi) * sin(theta);
         cameraPosition.y = zoom * cos(theta);
         cameraPosition.z = zoom * cos(phi) * sin(theta);
@@ -144,7 +184,7 @@ void runCuda() {
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
         camchanged = false;
-      }
+    }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
@@ -154,7 +194,7 @@ void runCuda() {
         pathtraceInit(scene);
     }
 
-    uchar4 *pbo_dptr = NULL;
+    uchar4* pbo_dptr = NULL;
     cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
     if (iteration < ui_iterations) {
@@ -162,13 +202,43 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
+
+        auto start = chrono::high_resolution_clock::now();
         pathtrace(frame, iteration);
+        duration_total_us += chrono::duration_cast<chrono::microseconds>(chrono::high_resolution_clock::now() - start).count();
+
+        if (iteration == ui_iterations) {
+            std::cout << "Pathtrace avg duration " << duration_total_us / ui_iterations << std::endl;
+            duration_total_us = 0;
+        }
+    }
+
+    if (ui_denoise && iteration == ui_iterations) {
+        if (denoisingSettingChanged() || lastLoopDenoise != ui_denoise) {
+            std::cout << "Need to denoise!" << std::endl;
+
+            lastLoopDenoise = ui_denoise;
+            denoiseFree();
+            denoiseInit(scene);
+
+            auto start = chrono::high_resolution_clock::now();
+            denoise(ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+            auto duration_us = chrono::duration_cast<chrono::microseconds>(chrono::high_resolution_clock::now() - start).count();
+
+            std::cout << "Denoising duration " << duration_us << std::endl;
+        }
+    }
+
+    if (lastLoopDenoise != ui_denoise) {
+        lastLoopDenoise = ui_denoise;
     }
 
     if (ui_showGbuffer) {
-      showGBuffer(pbo_dptr);
+        showGBuffer(pbo_dptr);
+    } else if (ui_denoise) {
+        showDenoise(pbo_dptr, iteration);
     } else {
-      showImage(pbo_dptr, iteration);
+        showImage(pbo_dptr, iteration);
     }
 
     // unmap buffer object
