@@ -89,11 +89,26 @@ __global__ void gbufferToPBO_Normals(uchar4* pbo, glm::ivec2 resolution, GBuffer
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
 
-        glm::vec3 normal = glm::normalize(gBuffer[index].normals) * 255.0f;
+        glm::vec3 normal = gBuffer[index].normal * 256.0f;
         pbo[index].w = 0;
         pbo[index].x = normal.x;
         pbo[index].y = normal.y;
         pbo[index].z = normal.z;
+    }
+}
+
+__global__ void gbufferToPBO_Position(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+
+        glm::vec3 position = glm::abs(gBuffer[index].position) * 20.0f;
+        pbo[index].w = 0;
+        pbo[index].x = position[0];
+        pbo[index].y = position[1];
+        pbo[index].z = position[2];
     }
 }
 
@@ -297,7 +312,8 @@ __global__ void generateGBuffer (
   if (idx < num_paths)
   {
     gBuffer[idx].t = shadeableIntersections[idx].t;
-    gBuffer[idx].normals = shadeableIntersections[idx].surfaceNormal;
+    gBuffer[idx].normal = shadeableIntersections[idx].surfaceNormal;
+    gBuffer[idx].position = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
   }
 }
 
@@ -435,7 +451,7 @@ void showGBuffer(uchar4* pbo) {
 
     // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
     //gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
-    gbufferToPBO_Normals<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
+    gbufferToPBO_Position <<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
 }
 
 void showImage(uchar4* pbo, int iter) {
