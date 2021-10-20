@@ -20,8 +20,8 @@
 #define ERRORCHECK 1
 #define STREAM_COMPACTION 1
 #define SORT_BY_MATERIAL 1
-#define CACHE_FIRST_BOUNCE 0
-#define PERFORMANCE_ANALYSIS 1
+#define CACHE_FIRST_BOUNCE 1
+#define PERFORMANCE_ANALYSIS 0
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -93,12 +93,26 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
     if (x < resolution.x && y < resolution.y)
     {
         int index = x + (y * resolution.x);
+#define GBUFFER_DISPLAY_MODE 2
+#if GBUFFER_DISPLAY_MODE == 1
+        glm::vec3 posCol = glm::clamp(glm::abs(gBuffer[index].pos * 25.f), 0.f, 255.f);
+        pbo[index].w = 0;
+        pbo[index].x = posCol.x;
+        pbo[index].y = posCol.y;
+        pbo[index].z = posCol.z;
+#elif GBUFFER_DISPLAY_MODE == 2
+        glm::vec3 normalCol = glm::abs(gBuffer[index].normal * 255.f);
+        pbo[index].w = 0;
+        pbo[index].x = normalCol.x;
+        pbo[index].y = normalCol.y;
+        pbo[index].z = normalCol.z;
+#else
         float timeToIntersect = gBuffer[index].t * 256.0;
-
         pbo[index].w = 0;
         pbo[index].x = timeToIntersect;
         pbo[index].y = timeToIntersect;
         pbo[index].z = timeToIntersect;
+#endif
     }
 }
 
@@ -382,6 +396,8 @@ __global__ void generateGBuffer(
     if (idx < num_paths)
     {
         gBuffer[idx].t = shadeableIntersections[idx].t;
+        gBuffer[idx].pos = pathSegments[idx].ray.origin + shadeableIntersections[idx].t * pathSegments[idx].ray.direction;
+        gBuffer[idx].normal = shadeableIntersections[idx].surfaceNormal;
     }
 }
 
@@ -433,9 +449,9 @@ void pathtrace(int frame, int iter)
     //   * Shade the rays that intersected something or didn't bottom out.
     //     That is, color the ray by performing a color computation according
     //     to the shader, then generate a new ray to continue the ray path.
-    // * Finally, add this iteration's results to the image. 
-
-    // perform one iteration of path tracing
+    // * Finally:
+    //     * if not denoising, add this iteration's results to the image
+    //     * TODO: if denoising, run kernels that take both the raw pathtraced result and the gbuffer, and put the result in the "pbo" from opengl
 
 #if PERFORMANCE_ANALYSIS
     if (iter <= numIters)
@@ -555,4 +571,43 @@ void showImage(uchar4* pbo, int iter)
 
     // Send results to OpenGL buffer for rendering
     sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
+}
+
+__global__ void aTrousFilter(glm::ivec2 resolution, int stepWidth, float cphi, const glm::vec3* img)
+{
+    int x = blockDim.x * blockIdx.x + threadIdx.x;
+    int y = blockDim.y * blockIdx.y + threadIdx.y;
+    if (x >= resolution.x || y >= resolution.y) return;
+
+    int idx = y * resolution.x + x;
+    constexpr float kernel[5] = { 1.f / 16.f, 1.f / 4.f, 3.f / 8.f, 1.f / 4.f, 1.f / 16.f };
+
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = 0; j < 5; ++j)
+        {
+            int tx = glm::clamp(x + (i - 2) * stepWidth, 0, resolution.x);
+            int ty = glm::clamp(y + (j - 2) * stepWidth, 0, resolution.y);
+            int tidx = ty * resolution.x + tx;
+
+            glm::vec3 t = img[idx] - img[tidx];
+            float dist2 = glm::dot(t, t);
+            float cw = min(exp(-dist2 / cphi), 1.f);
+        }
+    }
+}
+
+void denoise()
+{
+    const glm::ivec2 resolution = hst_scene->state.camera.resolution;
+    const dim3 blockSize2d(8, 8);
+    const dim3 blocksPerGrid2d((resolution.x + blockSize2d.x - 1) / blockSize2d.x,
+                               (resolution.y + blockSize2d.y - 1) / blockSize2d.y);
+
+    for (struct { int stepWidth; float cphi; } iter = { 1, ui_colorWeight }; 
+         iter.stepWidth * 4 + 1 <= ui_filterSize; 
+         iter.stepWidth *= 2, iter.cphi *= 0.5f)
+    {
+        aTrousFilter<<<blocksPerGrid2d, blockSize2d>>>(resolution, iter.stepWidth, iter.cphi, dev_image);
+    }
 }
