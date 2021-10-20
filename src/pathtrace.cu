@@ -82,6 +82,16 @@ __global__ void filterImage(glm::ivec2 resolution,
         // TODO: apply A-Trous Filter algorithm
         glm::vec3 sum{ 0.0 };
         float k = 0.0;
+
+        glm::vec3 boundingMin, boundingMax;
+        //for (int i = 0; i < 25; i++)
+        //{
+        //    glm::ivec2 qIndex2D = index2D + denoise.offset[i] * denoise.stepWidth;
+        //    if (qIndex2D.x >= resolution.x || qIndex2D.y >= resolution.y || qIndex2D.x < 0 || qIndex2D.y < 0)
+        //        continue; // out of bounds 
+        //    if (gBuffer[index].)
+        //}
+
         for (int i = 0; i < 25; i++)
         {
             // get q index
@@ -96,21 +106,24 @@ __global__ void filterImage(glm::ivec2 resolution,
             float h_q = denoise.kernel[i];
 
             // weights
-            //glm::vec3 t = image[index] - image[qIndex];
-            //float dist2 = glm::dot(t, t);
-            //float w_rt = glm::min(glm::exp(-dist2 / denoise.colorWeight), 1.0f);
+            /*float w_rt = glm::clamp((0.5f - glm::distance(image[index] / (float)iter, image[qIndex] / (float)iter)), 0.f, 1.f) * denoise.colorWeight;
+            float w_n = glm::clamp(glm::dot(gBuffer[index].normal, gBuffer[qIndex].normal), 0.f, 1.f) * denoise.normalWeight;
+            float w_x = glm::clamp((0.2f / glm::distance(gBuffer[index].position, gBuffer[qIndex].position)), 0.f, 1.f) * denoise.positionWeight;*/
+           
+            glm::vec3 t = (image[index] - image[qIndex])/((float)iter); // divide by iter?
+            float dist2 = glm::dot(t, t);
+            float w_rt = glm::min(glm::exp(-dist2 / denoise.colorWeight), 1.0f);
 
-            //t = gBuffer[index].normal - gBuffer[qIndex].normal;
-            //dist2 = glm::dot(t, t) / (denoise.stepWidth * denoise.stepWidth);
-            //float w_n = glm::min(glm::exp(-dist2 / denoise.normalWeight), 1.0f);
+            t = gBuffer[index].normal - gBuffer[qIndex].normal;
+            dist2 = glm::max(glm::dot(t, t), 0.f);
+            float w_n = glm::min(glm::exp(-dist2 / denoise.normalWeight), 1.f);
 
+            // position seems to be off...
             //t = gBuffer[index].position - gBuffer[qIndex].position;
-            //dist2 = dot(t, t);
-            //float w_x = glm::min(glm::exp(-dist2 / denoise.positionWeight), 1.0f);
+            //dist2 = glm::dot(t, t);
+            //float w_x = glm::min(glm::exp(-dist2 / denoise.positionWeight), 1.f);
 
-            //float weight = w_rt * w_n * w_x;
-            ////float weight = denoise.colorWeight * denoise.normalWeight * denoise.positionWeight;
-            float weight = 1;
+            float weight = w_rt * w_n;
 
             // summation
             sum += h_q * weight * pixQ;
