@@ -13,6 +13,7 @@
 #include "pathtrace.h"
 #include "intersections.h"
 #include "interactions.h"
+#include "main.h"
 
 #define ERRORCHECK 1
 
@@ -321,6 +322,97 @@ __global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterati
 		PathSegment iterationPath = iterationPaths[index];
 		image[iterationPath.pixelIndex] += iterationPath.color;
 	}
+}
+
+// passing cam by const& freezes the app???
+__global__ void performOneStepATrousFilter(Camera cam, 
+    float colorWeight, 
+    float normalWeight, 
+    float positionWeight, 
+    int currStepWidth, 
+    GBufferPixel* gBuffer, 
+    glm::vec3* image, 
+    glm::vec3* denoisedImage)
+{
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < cam.resolution.x && y < cam.resolution.y) {
+        int index = x + (y * cam.resolution.x);
+
+        float h[5] = { 1.f / 16.f, 1.f / 4.f, 3.f / 8.f, 1.f / 4.f, 1.f / 16.f }; 
+
+        float cum_w = 0.f;
+        glm::vec3 sum{ 0.f };
+
+        glm::vec3 cval = image[index];
+        glm::vec3 nval = gBuffer[index].normal;
+        glm::vec3 pval = gBuffer[index].pos;
+
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 5; j++)
+            {
+                int u = x + currStepWidth * (i - 2);
+                int v = y + currStepWidth * (j - 2);
+                if (u < cam.resolution.x && v < cam.resolution.y && u >= 0 && v >= 0)
+                {
+                    int currIndex = u + (v * cam.resolution.x);
+
+                    // color
+                    glm::vec3 ctmp = image[currIndex];
+                    glm::vec3 t = cval - ctmp;
+                    float dist2 = glm::dot(t, t);
+                    float c_w = glm::min(glm::exp(-(dist2) / colorWeight), 1.f);
+                    // normal
+                    glm::vec3 ntmp = gBuffer[currIndex].normal;
+                    t = nval - ntmp;
+                    dist2 = glm::max(glm::dot(t, t) / (currStepWidth * currStepWidth), 0.f);
+                    float n_w = glm::min(glm::exp(-(dist2) / normalWeight), 1.f);
+                    // position
+                    glm::vec3 ptmp = gBuffer[currIndex].pos;
+                    t = pval - ptmp;
+                    dist2 = glm::dot(t, t);
+                    float p_w = glm::min(glm::exp(-(dist2) / positionWeight), 1.f);
+
+                    float weight = c_w * n_w * p_w;
+                    sum += ctmp * weight * h[i] * h[j];
+                    cum_w += weight * h[i] * h[j];
+                }
+            }
+        }
+        denoisedImage[index] = sum / cum_w;
+    }
+}
+
+void denoisePathTracedImage()
+{
+    const Camera& cam = hst_scene->state.camera;
+    const int pixelcount = cam.resolution.x * cam.resolution.y;
+    const dim3 blockSize2d(8, 8);
+    const dim3 blocksPerGrid2d(
+        (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
+        (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
+
+    int stepWidth = 1;
+    int colorWeight = ui_colorWeight;
+    for (int i = 0; i < ui_iterations; i++) {
+        performOneStepATrousFilter << <blocksPerGrid2d, blockSize2d >> > (
+            cam,
+            colorWeight,
+            ui_normalWeight,
+            ui_positionWeight,
+            stepWidth,
+            dev_gBuffer,
+            dev_image,
+            dev_denoisedImage);
+        stepWidth *= 2;
+        colorWeight *= 0.5f;
+        std::swap(dev_denoisedImage, dev_image);
+    }
+
+    cudaMemcpy(hst_scene->state.image.data(), dev_image,
+        pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
 }
 
 /**

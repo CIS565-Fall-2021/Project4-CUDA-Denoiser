@@ -25,7 +25,7 @@ int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
 bool ui_denoise = false;
 int ui_filterSize = 80;
-float ui_colorWeight = 0.45f;
+float ui_colorWeight = 30.f;
 float ui_normalWeight = 0.35f;
 float ui_positionWeight = 0.2f;
 bool ui_saveAndExit = false;
@@ -44,6 +44,12 @@ int iteration;
 
 int width;
 int height;
+
+// keep track of previous state of denoiser parameters
+float last_colorWeight = 0.f;
+float last_normalWeight = 0.f;
+float last_positionWeight = 0.f;
+bool last_denoise = false;
 
 //-------------------------------
 //-------------MAIN--------------
@@ -125,6 +131,27 @@ void runCuda() {
         lastLoopIterations = ui_iterations;
         camchanged = true;
     }
+    else if (last_colorWeight != ui_colorWeight)
+    {
+        last_colorWeight = ui_colorWeight;
+        camchanged = true;
+    }
+    else if (last_normalWeight != ui_normalWeight)
+    {
+        last_normalWeight = ui_normalWeight;
+        camchanged = true;
+    }
+    else if (last_positionWeight != ui_positionWeight)
+    {
+        last_positionWeight = ui_positionWeight;
+        camchanged = true;
+    }
+    else if (last_denoise != ui_denoise)
+    {
+        last_denoise = ui_denoise;
+        camchanged = true;
+    }
+
 
     if (camchanged) {
         iteration = 0;
@@ -163,6 +190,16 @@ void runCuda() {
         // execute the kernel
         int frame = 0;
         pathtrace(frame, iteration);
+    }
+    // extra iteration for denoiser
+    else if (iteration == ui_iterations)
+    {
+        // last iteration is denoising
+        iteration++;
+        if (ui_denoise)
+        {
+            denoisePathTracedImage();
+        }
     }
 
     if (ui_showGbuffer) {
