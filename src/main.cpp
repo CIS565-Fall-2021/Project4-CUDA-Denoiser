@@ -21,7 +21,7 @@ static double lastY;
 int ui_iterations = 0;
 int startupIterations = 0;
 int lastLoopIterations = 0;
-bool ui_showGbuffer = false;
+int ui_viewImgPosNor = 0;
 bool ui_denoise = false;
 int ui_filterSize = 80;
 float ui_colorWeight = 0.45f;
@@ -165,13 +165,16 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
+        pathtrace(frame, iteration, ui_viewImgPosNor);
     }
 
-    if (ui_showGbuffer) {
-        showGBuffer(pbo_dptr);
-    } else {
+    if (ui_viewImgPosNor == 0)
+    {
         showImage(pbo_dptr, iteration);
+    }
+    else
+    {
+        showGBuffer(pbo_dptr, ui_viewImgPosNor);
     }
 
     // unmap buffer object

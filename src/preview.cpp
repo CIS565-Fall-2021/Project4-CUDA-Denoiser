@@ -221,7 +221,10 @@ void drawGui(int windowWidth, int windowHeight) {
 
     ImGui::Separator();
 
-    ImGui::Checkbox("Show GBuffer", &ui_showGbuffer);
+    ImGui::RadioButton("None", &ui_viewImgPosNor, 0); ImGui::SameLine();
+    ImGui::RadioButton("Pos", &ui_viewImgPosNor, 2); ImGui::SameLine();
+    ImGui::RadioButton("Nor", &ui_viewImgPosNor, 1); ImGui::SameLine();
+    ImGui::RadioButton("TTF", &ui_viewImgPosNor, 3);
 
     ImGui::Separator();
 

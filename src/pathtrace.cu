@@ -76,18 +76,50 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
     }
 }
 
-__global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
+__global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer, int viewChoice) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        float timeToIntersect = gBuffer[index].t * 256.0;
 
-        pbo[index].w = 0;
-        pbo[index].x = timeToIntersect;
-        pbo[index].y = timeToIntersect;
-        pbo[index].z = timeToIntersect;
+        if (viewChoice == 1)        // Normals
+        {
+            glm::ivec3 color;
+            glm::vec3 nor = glm::abs(gBuffer[index].nor);
+
+            color.x = glm::clamp((int)(nor.x * 255.0), 0, 255);
+            color.y = glm::clamp((int)(nor.y * 255.0), 0, 255);
+            color.z = glm::clamp((int)(nor.z * 255.0), 0, 255);
+
+            pbo[index].w = 0;
+            pbo[index].x = color.x;
+            pbo[index].y = color.y;
+            pbo[index].z = color.z;
+        }
+        else if (viewChoice == 2)   // Positions
+        {
+            glm::ivec3 color;
+            glm::vec3 pos = glm::abs(gBuffer[index].pos);
+
+            color.x = glm::clamp((int)(pos.x * 255.0 / 10), 0, 255);
+            color.y = glm::clamp((int)(pos.y * 255.0 / 10), 0, 255);
+            color.z = glm::clamp((int)(pos.z * 255.0 / 10), 0, 255);
+
+            pbo[index].w = 0;
+            pbo[index].x = color.x;
+            pbo[index].y = color.y;
+            pbo[index].z = color.z;
+        }
+        else if (viewChoice == 3)   // TTF
+        {
+            float timeToIntersect = gBuffer[index].t * 256.0;
+
+            pbo[index].w = 0;
+            pbo[index].x = timeToIntersect;
+            pbo[index].y = timeToIntersect;
+            pbo[index].z = timeToIntersect;
+        }
     }
 }
 
@@ -491,10 +523,13 @@ __global__ void generateGBuffer(
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
-    GBufferPixel* gBuffer) {
+    GBufferPixel* gBuffer,
+    int viewChoice) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < num_paths)
     {
+        gBuffer[idx].nor = shadeableIntersections[idx].surfaceNormal;
+        gBuffer[idx].pos = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
         gBuffer[idx].t = shadeableIntersections[idx].t;
     }
 }
@@ -540,7 +575,7 @@ __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iteration
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
  */
-void pathtrace(int frame, int iter) {
+void pathtrace(int frame, int iter, int viewChoice) {
     const int traceDepth = hst_scene->state.traceDepth;
     const Camera& cam = hst_scene->state.camera;
     const int pixelcount = cam.resolution.x * cam.resolution.y;
@@ -683,7 +718,7 @@ void pathtrace(int frame, int iter) {
 #endif
 
         if (depth == 0) {
-            generateGBuffer<<<numblocksPathSegmentTracing, blockSize1d>>>(num_paths, dev_intersections, dev_paths, dev_gBuffer);
+            generateGBuffer<<<numblocksPathSegmentTracing, blockSize1d>>>(num_paths, dev_intersections, dev_paths, dev_gBuffer, viewChoice);
         }
         
         depth++;
@@ -753,14 +788,14 @@ void pathtrace(int frame, int iter) {
     checkCUDAError("pathtrace");
 }
 
-void showGBuffer(uchar4* pbo) {
+void showGBuffer(uchar4* pbo, int viewChoice) {
     const Camera& cam = hst_scene->state.camera;
     const dim3 blockSize2d(8, 8);
     const dim3 blocksPerGrid2d(
         (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
         (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
-    gbufferToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer);
+    gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer, viewChoice);
 }
 
 void showImage(uchar4* pbo, int iter) {
