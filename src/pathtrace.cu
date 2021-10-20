@@ -258,7 +258,6 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 			- cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f)
 			- cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f)
 		);
-
 		segment.pixelIndex = index;
 		segment.remainingBounces = traceDepth;
 	}
@@ -296,15 +295,24 @@ __global__ void CopyDataToInterImage(
 			//glm::vec3 currColor = dev_colorImage[index];
 			for (int i = 0; i < 25; i++)
 			{
+				int index2D_y = index / cam.resolution.x;
+				int index2D_x = (int)(index % cam.resolution.x);
 
-				float offsetX = dev_offsetKernel[i].x;
-				float offsetY = dev_offsetKernel[i].y;
-				float gausValue = dev_gausKernel[i];
-				int offsetColorIdx = index + (offsetY * cam.resolution.x + offsetX);
-				if (offsetColorIdx >= 0 && offsetColorIdx < num_paths)
+				int offsetX = dev_offsetKernel[i].x;
+				int offsetY = dev_offsetKernel[i].y;
+
+				int finalValue_X = index2D_x + offsetX;
+				int finalValue_Y = index2D_y + offsetY;
+
+				if (finalValue_X >= 0 && finalValue_X <= (cam.resolution.x - 1) && finalValue_Y >= 0 && finalValue_Y <= (cam.resolution.y - 1))
 				{
-					glm::vec3 newColor = dev_colorImage[offsetColorIdx];
-					currColor += newColor * dev_gausKernel[i];
+					float gausValue = dev_gausKernel[i];
+					int offsetColorIdx = finalValue_Y * cam.resolution.x + finalValue_X;
+					if (offsetColorIdx >= 0 && offsetColorIdx < num_paths)
+					{
+						glm::vec3 newColor = dev_colorImage[offsetColorIdx];
+						currColor += newColor * dev_gausKernel[i];
+					}
 				}
 			}
 			dev_TrousImage[index] = currColor;
