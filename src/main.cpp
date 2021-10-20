@@ -23,7 +23,7 @@ int ui_iterations = 0;
 int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
-bool ui_denoise = false;
+bool ui_denoise = true;
 int ui_filterSize = 80;
 float ui_colorWeight = 0.45f;
 float ui_normalWeight = 0.35f;
@@ -162,19 +162,24 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
+        pathtrace(frame, iteration, ui_denoise);
     }
 
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr);
     } else {
-      showImage(pbo_dptr, iteration);
+      showImage(pbo_dptr, iteration, ui_denoise);
     }
 
     // unmap buffer object
     cudaGLUnmapBufferObject(pbo);
 
+    if (iteration == ui_iterations && ui_denoise) {
+        denoiseImage(ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+    }
+
     if (ui_saveAndExit) {
+        
         saveImage();
         pathtraceFree();
         cudaDeviceReset();
