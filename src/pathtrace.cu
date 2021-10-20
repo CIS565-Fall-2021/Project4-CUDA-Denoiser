@@ -99,11 +99,16 @@ __global__ void gbufferToPBO_Normals(uchar4* pbo, glm::ivec2 resolution, GBuffer
 	if (x < resolution.x && y < resolution.y) {
 		int index = x + (y * resolution.x);
 
-		glm::vec3 normal = gBuffer[index].normal * 255.0f;
+		glm::vec3 normal = glm::abs(gBuffer[index].normal);
+		glm::ivec3 color;
+		color.x = glm::clamp((int)(normal.x * 255.0), 0, 255);
+		color.y = glm::clamp((int)(normal.y * 255.0), 0, 255);
+		color.z = glm::clamp((int)(normal.z * 255.0), 0, 255);
+
 		pbo[index].w = 0;
-		pbo[index].x = normal.x;
-		pbo[index].y = normal.y;
-		pbo[index].z = normal.z;
+		pbo[index].x = color.x;
+		pbo[index].y = color.y;
+		pbo[index].z = color.z;
 	}
 }
 
@@ -571,9 +576,9 @@ __global__ void CopyDataToInterImage(
 
 		// CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
 		//gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
-		//gbufferToPBO_Normals<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
+		gbufferToPBO_Normals<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
 		//gbufferToPBO_Position <<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
-		gbufferToPBO_Atrous << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer, dev_TrousImage);
+		//gbufferToPBO_Atrous << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer, dev_TrousImage);
 	}
 
 	void showImage(uchar4 * pbo, int iter) {
