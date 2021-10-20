@@ -2,6 +2,10 @@
 #include "preview.h"
 #include <cstring>
 
+#include "../imgui/imgui.h"
+#include "../imgui/imgui_impl_glfw.h"
+#include "../imgui/imgui_impl_opengl3.h"
+
 #define ORIG_LENS_RADIUS 0.f;
 #define ORIG_FOCAL_LENFTH 4.f;
 
@@ -13,6 +17,12 @@ static bool rightMousePressed = false;
 static bool middleMousePressed = false;
 static double lastX;
 static double lastY;
+
+bool ui_denoise = false;
+int ui_filterSize = 80;
+float ui_colorWeight = 0.45f;
+float ui_normalWeight = 0.35f;
+float ui_positionWeight = 0.2f;
 
 static bool camchanged = true;
 static float dtheta = 0, dphi = 0;
@@ -196,9 +206,10 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 }
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
-  leftMousePressed = (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS);
-  rightMousePressed = (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS);
-  middleMousePressed = (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS);
+    if (ImGui::GetIO().WantCaptureMouse) return;
+    leftMousePressed = (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS);
+    rightMousePressed = (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS);
+    middleMousePressed = (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS);
 }
 
 void mousePositionCallback(GLFWwindow* window, double xpos, double ypos) {
