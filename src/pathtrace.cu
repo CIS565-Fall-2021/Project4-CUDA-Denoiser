@@ -67,6 +67,29 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
     }
 }
 
+//Kernel that writes the image to the OpenGL PBO directly.
+__global__ void sendDenoiseToPBO(uchar4* pbo, glm::ivec2 resolution,
+        int iter, glm::vec3* image) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        glm::vec3 pix = image[index];
+
+        glm::ivec3 color;
+        color.x = glm::clamp((int) (pix.x * 255.0), 0, 255);
+        color.y = glm::clamp((int) (pix.y * 255.0), 0, 255);
+        color.z = glm::clamp((int) (pix.z * 255.0), 0, 255);
+
+        // Each thread writes one pixel location in the texture (textel)
+        pbo[index].w = 0;
+        pbo[index].x = color.x;
+        pbo[index].y = color.y;
+        pbo[index].z = color.z;
+    }
+}
+
 __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
@@ -89,6 +112,7 @@ static Material * dev_materials = NULL;
 static PathSegment * dev_paths = NULL;
 static ShadeableIntersection * dev_intersections = NULL;
 static GBufferPixel* dev_gBuffer = NULL;
+static glm::vec3 * dev_dnImage = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
 
@@ -113,6 +137,8 @@ void pathtraceInit(Scene *scene) {
 
     cudaMalloc(&dev_gBuffer, pixelcount * sizeof(GBufferPixel));
 
+    cudaMalloc(&dev_dnImage, pixelcount * sizeof(glm::vec3));
+    cudaMemset(dev_dnImage, 0, pixelcount * sizeof(glm::vec3));
     // TODO: initialize any extra device memeory you need
 
     checkCUDAError("pathtraceInit");
@@ -125,6 +151,7 @@ void pathtraceFree() {
   	cudaFree(dev_materials);
   	cudaFree(dev_intersections);
     cudaFree(dev_gBuffer);
+    cudaFree(dev_dnImage); 
     // TODO: clean up any extra device memory you created
 
     checkCUDAError("pathtraceFree");
@@ -297,6 +324,16 @@ __global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterati
 	}
 }
 
+__global__ void denoise(int n, GBufferPixel* gbuff, glm::vec3* image, glm::vec3 * dnImage) {
+	int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+    if (index < n)
+    {
+        //bring denoise
+        dnImage[index] = glm::vec3((float)index / n);
+    }
+}
+
 /**
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
@@ -399,6 +436,7 @@ void pathtrace(int frame, int iter) {
 	finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
 
     ///////////////////////////////////////////////////////////////////////////
+    denoise <<<numBlocksPixels, blockSize1d>>>(num_paths, dev_gBuffer, dev_image, dev_dnImage);
 
     // CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
     // Otherwise, screenshots are also acceptable.
@@ -419,6 +457,17 @@ void showGBuffer(uchar4* pbo) {
 
     // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
     gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
+}
+
+void showDenoise(uchar4* pbo, int iter) {
+    const Camera &cam = hst_scene->state.camera;
+    const dim3 blockSize2d(8, 8);
+    const dim3 blocksPerGrid2d(
+            (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
+            (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
+
+    // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
+    sendDenoiseToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_dnImage);
 }
 
 void showImage(uchar4* pbo, int iter) {
