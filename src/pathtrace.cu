@@ -67,28 +67,28 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
     }
 }
 
-//Kernel that writes the image to the OpenGL PBO directly.
-__global__ void sendDenoiseToPBO(uchar4* pbo, glm::ivec2 resolution,
-        int iter, glm::vec3* image) {
-    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
-    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
-
-    if (x < resolution.x && y < resolution.y) {
-        int index = x + (y * resolution.x);
-        glm::vec3 pix = image[index];
-
-        glm::ivec3 color;
-        color.x = glm::clamp((int) (pix.x * 255.0), 0, 255);
-        color.y = glm::clamp((int) (pix.y * 255.0), 0, 255);
-        color.z = glm::clamp((int) (pix.z * 255.0), 0, 255);
-
-        // Each thread writes one pixel location in the texture (textel)
-        pbo[index].w = 0;
-        pbo[index].x = color.x;
-        pbo[index].y = color.y;
-        pbo[index].z = color.z;
-    }
-}
+////Kernel that writes the image to the OpenGL PBO directly.
+//__global__ void sendDenoiseToPBO(uchar4* pbo, glm::ivec2 resolution,
+//        int iter, glm::vec3* image) {
+//    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+//    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+//
+//    if (x < resolution.x && y < resolution.y) {
+//        int index = x + (y * resolution.x);
+//        glm::vec3 pix = image[index];
+//
+//        glm::ivec3 color;
+//        color.x = glm::clamp((int) (pix.x * 255.0), 0, 255);
+//        color.y = glm::clamp((int) (pix.y * 255.0), 0, 255);
+//        color.z = glm::clamp((int) (pix.z * 255.0), 0, 255);
+//
+//        // Each thread writes one pixel location in the texture (textel)
+//        pbo[index].w = 0;
+//        pbo[index].x = color.x;
+//        pbo[index].y = color.y;
+//        pbo[index].z = color.z;
+//    }
+//}
 
 __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -106,6 +106,7 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
 }
 
 static Scene * hst_scene = NULL;
+static DenoiseSettings * denoiseSettings = NULL;
 static glm::vec3 * dev_image = NULL;
 static Geom * dev_geoms = NULL;
 static Material * dev_materials = NULL;
@@ -324,7 +325,7 @@ __global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterati
 	}
 }
 
-__global__ void denoise(int n, GBufferPixel* gbuff, glm::vec3* image, glm::vec3 * dnImage, int imageWidth) {
+__global__ void denoise(int n, GBufferPixel* gbuff, glm::vec3* image, glm::vec3 * dnImage, int steps, int imageWidth) {
 	int index = (blockIdx.x * blockDim.x) + threadIdx.x;
 
     if (index < n)
@@ -349,23 +350,25 @@ __global__ void denoise(int n, GBufferPixel* gbuff, glm::vec3* image, glm::vec3 
 
         // the cell count in 2d, starting in the upper left corner of
         // our 5x5 filter
-        for (int y = 0; y < 5; y++) {
-            for (int x = 0; x < 5; x++) {
-                int imX = (imStartX + x) * uStepIm;
-                int imY = (imStartY + y) * vStepIm;
+        for (int step = 0; step < steps; step++) {
+            for (int y = 0; y < 5; y++) {
+                for (int x = 0; x < 5; x++) {
+                    int imX = (imStartX + x) * uStepIm * step;
+                    int imY = (imStartY + y) * vStepIm * step;
 
-                int i = index + imX + imY;
-                if (i < 0 || i >= n) {
-                    continue;
+                    int i = index + imX + imY;
+                    if (i < 0 || i >= n) {
+                        continue;
+                    }
+
+                    float gVal = GaussianFilter[y][x];
+
+                    colSum += gVal * image[i];
                 }
-
-                float gVal = GaussianFilter[y][x];
-
-                colSum += gVal * image[i];
             }
         }
 
-        dnImage[index] = colSum / 256.0f;
+        dnImage[index] = colSum / (256.0f * steps);
 
         //bring denoise
         //dnImage[index] = glm::vec3((float)index / n);
@@ -474,7 +477,15 @@ void pathtrace(int frame, int iter) {
 	finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
 
     ///////////////////////////////////////////////////////////////////////////
-    denoise <<<numBlocksPixels, blockSize1d>>>(num_paths, dev_gBuffer, dev_image, dev_dnImage, cam.resolution.x);
+    if (*hst_scene->state.denoiseSettings->denoise){
+        int steps = *hst_scene->state.denoiseSettings->filterSize / 5;
+        denoise <<<numBlocksPixels, blockSize1d>>>(num_paths, 
+												   dev_gBuffer, 
+												   dev_image, 
+												   dev_dnImage, 
+												   steps, 
+												   cam.resolution.x);
+    }
 
     // CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
     // Otherwise, screenshots are also acceptable.

@@ -30,6 +30,7 @@ float ui_normalWeight = 0.35f;
 float ui_positionWeight = 0.2f;
 bool ui_saveAndExit = false;
 
+
 static bool camchanged = true;
 static float dtheta = 0, dphi = 0;
 static glm::vec3 cammove;
@@ -40,6 +41,7 @@ glm::vec3 ogLookAt; // for recentering the camera
 
 Scene *scene;
 RenderState *renderState;
+DenoiseSettings *denoiseSettings;
 int iteration;
 
 int width;
@@ -62,12 +64,22 @@ int main(int argc, char** argv) {
     // Load scene file
     scene = new Scene(sceneFile);
 
+    // Set up denoise settings to pass data from UI
+    denoiseSettings = new DenoiseSettings();
+    denoiseSettings->denoise = &ui_denoise;
+    denoiseSettings->filterSize = &ui_filterSize;
+    denoiseSettings->colorWeight = &ui_colorWeight;
+	denoiseSettings->normalWeight = &ui_normalWeight;
+	denoiseSettings->positionWeight = &ui_positionWeight;
+
     // Set up camera stuff from loaded path tracer settings
     iteration = 0;
     renderState = &scene->state;
     Camera &cam = renderState->camera;
     width = cam.resolution.x;
     height = cam.resolution.y;
+
+    renderState->denoiseSettings = denoiseSettings;
 
     ui_iterations = renderState->iterations;
     startupIterations = ui_iterations;
