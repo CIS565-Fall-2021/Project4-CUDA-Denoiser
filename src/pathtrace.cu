@@ -119,11 +119,16 @@ __global__ void gbufferToPBO_Position(uchar4* pbo, glm::ivec2 resolution, GBuffe
 	if (x < resolution.x && y < resolution.y) {
 		int index = x + (y * resolution.x);
 
-		glm::vec3 position = glm::abs(gBuffer[index].position) * 20.0f;
+		glm::vec3 position = glm::abs(gBuffer[index].position) ;
+		glm::ivec3 color;
+		color.x = glm::clamp((int)(position.x * 20.0), 0, 255);
+		color.y = glm::clamp((int)(position.y * 20.0), 0, 255);
+		color.z = glm::clamp((int)(position.z * 20.0), 0, 255);
+
 		pbo[index].w = 0;
-		pbo[index].x = position[0];
-		pbo[index].y = position[1];
-		pbo[index].z = position[2];
+		pbo[index].x = color.x;
+		pbo[index].y = color.y;
+		pbo[index].z = color.z;
 	}
 }
 
@@ -576,8 +581,8 @@ __global__ void CopyDataToInterImage(
 
 		// CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
 		//gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
-		gbufferToPBO_Normals<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
-		//gbufferToPBO_Position <<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
+		//gbufferToPBO_Normals<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
+		gbufferToPBO_Position <<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
 		//gbufferToPBO_Atrous << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer, dev_TrousImage);
 	}
 
