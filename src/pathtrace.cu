@@ -73,12 +73,27 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
 
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        float timeToIntersect = gBuffer[index].t * 256.0;
+        float timeToIntersect = gBuffer[index].t * 256.0f;
 
         pbo[index].w = 0;
         pbo[index].x = timeToIntersect;
         pbo[index].y = timeToIntersect;
         pbo[index].z = timeToIntersect;
+    }
+}
+
+__global__ void gbufferToPBO_Normals(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+
+        glm::vec3 normal = glm::normalize(gBuffer[index].normals) * 255.0f;
+        pbo[index].w = 0;
+        pbo[index].x = normal.x;
+        pbo[index].y = normal.y;
+        pbo[index].z = normal.z;
     }
 }
 
@@ -282,6 +297,7 @@ __global__ void generateGBuffer (
   if (idx < num_paths)
   {
     gBuffer[idx].t = shadeableIntersections[idx].t;
+    gBuffer[idx].normals = shadeableIntersections[idx].surfaceNormal;
   }
 }
 
@@ -418,7 +434,8 @@ void showGBuffer(uchar4* pbo) {
             (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
     // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
-    gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
+    //gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
+    gbufferToPBO_Normals<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
 }
 
 void showImage(uchar4* pbo, int iter) {
