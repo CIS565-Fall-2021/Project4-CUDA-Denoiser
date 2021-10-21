@@ -392,15 +392,16 @@ __global__ void denoise(int n,
 
                     // get the distance of the gbuffer values 
                     // from our central pixel
-                    float nDist = max(glm::dot(centralNorm - nVal, centralNorm - nVal)/(step*step), 0.0f);
-                    float pDist = glm::dot(centralPos - pVal, centralPos - pVal);
-                    float cDist = glm::dot(centralCol - cVal, centralCol - cVal);
+					//glm::vec3 a = centralCol - cVal;
+                    float nDist = max(glm::length(centralNorm - nVal)/(step*step), 0.0f);
+					float pDist = glm::length(centralPos - pVal);// , centralPos - pVal);
+					float cDist = glm::length(centralCol - cVal);// , centralCol - cVal);
 
                     // get the weights based on these distances
                     // and our input values
                     float nw = min(exp(-1.0f * nDist / normalWeight), 1.0f);
                     float pw = min(exp(-1.0f * pDist / posWeight), 1.0f);
-                    float cw = min(exp(-1.0f * cDist / colorWeight), 1.0f);
+					float cw = min(exp(-1.0f * cDist / colorWeight), 1.0f);
 
                     // get the overall 
                     float w = nw * pw * cw;
@@ -410,6 +411,7 @@ __global__ void denoise(int n,
                     wSum += w * gVal;
                 }
             }
+			//centralCol = colSum / wSum;
         }
 
         //bring denoise
