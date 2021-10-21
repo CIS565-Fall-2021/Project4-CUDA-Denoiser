@@ -10,15 +10,15 @@ CUDA Denoiser For CUDA Path Tracer
 
 ![](comp2.png)
 
-                                                                                      Figure 1: Zoomed-in "So many balls" Scene
+Figure 1: Zoomed-in "So many balls" Scene
 
 ![](comp3.png)
 
-                                                                                      Figure 2: "So many balls" Scene
+Figure 2: "So many balls" Scene
 
 ![](comp.png)
 
-                                                                                      Figure 3: A Simple Cornell Box
+Figure 3: A Simple Cornell Box
 
 This denoiser is achieved by implementing the paper "Edge-Avoiding A-Trous Wavelet Transform for fast Global Illumination Filtering," by Dammertz, Sewtz, Hanika, and Lensch. 
 
