@@ -13,3 +13,5 @@ project, and we will not be able to grade you without a good README.
 
 
 Loop unrolling
+
+Do deniosing once after certain iterations more efficient doing it multiple times is useless.
