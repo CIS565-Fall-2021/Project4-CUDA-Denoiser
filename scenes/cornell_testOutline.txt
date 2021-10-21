@@ -119,7 +119,7 @@ REFL        0
 REFR        0
 REFRIOR     0
 EMITTANCE   0
-DIFFUSE_TEXTURE Klee/hair_diffuse.png
+DIFFUSE_TEXTURE Sky/jellybeans.png
 
 // JumpBomb material
 MATERIAL 10
@@ -141,7 +141,7 @@ REFL        0
 REFR        0
 REFRIOR     0
 EMITTANCE   1
-DIFFUSE_TEXTURE Klee/hair_diffuse.png
+DIFFUSE_TEXTURE Sky/jellybeans.png
 
 // Ceiling light
 OBJECT 0

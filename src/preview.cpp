@@ -284,13 +284,14 @@ void drawGui(int windowWidth, int windowHeight) {
     ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 20.0f);
     ImGui::SliderFloat("Normal Weight", &ui_normalWeight, 0.0f, 20.0f);
     ImGui::SliderFloat("Position Weight", &ui_positionWeight, 0.0f, 50.0f);
+    ImGui::SliderFloat("Plane Weight", &ui_planeWeight, 0.0f, 10.0f);
 
     ImGui::Separator();
 
     ImGui::Checkbox("Temporal", &ui_temporal);
     ImGui::SliderFloat("Alpha", &ui_temporalAlpha, 0.f, 1.f);
-    ImGui::SliderInt("Acc Radius", &ui_tAccRadius, 1, 10);
-    ImGui::SliderFloat("Color Box", &ui_colorBoxK, 0.f, 5.f);
+    ImGui::SliderInt("Acc Radius", &ui_tAccRadius, 0, 10);
+    ImGui::SliderFloat("Color Box", &ui_colorBoxK, 0.f, 10.f);
 
     ImGui::Separator();
 

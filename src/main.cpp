@@ -33,10 +33,11 @@ int ui_filterSize = 8;//80;
 float ui_colorWeight = 0.6f;//0.45f;
 float ui_normalWeight = 0.9f;//0.35f;
 float ui_positionWeight = 10.f;//0.2f;
+float ui_planeWeight = 1.0f;
 bool ui_temporal = false;
-float ui_temporalAlpha = 0.2f;
-int ui_tAccRadius = 3;
-float ui_colorBoxK = 1.f;
+float ui_temporalAlpha = 0.1f;// 0.2f;
+int ui_tAccRadius = 5;// 3;
+float ui_colorBoxK = 5.f;// 1.f;
 int ui_denoiseTypeIndex = static_cast<int>(Denoise::DenoiserType::A_TROUS);
 int ui_gBufferDataIndex = static_cast<int>(GBufferDataType::TIME);
 bool ui_saveAndExit = false;
@@ -52,6 +53,7 @@ glm::vec3 ogLookAt; // for recentering the camera
 Scene *scene;
 RenderState *renderState;
 int iteration;
+int frame = 0;
 bool paused;
 
 int width;
@@ -207,6 +209,7 @@ bool triggerClearIterationByUI() {
     static float last_ui_colorWeight = ui_colorWeight;
     static float last_ui_normalWeight = ui_normalWeight;
     static float last_ui_positionWeight = ui_positionWeight;
+    static float last_ui_planeWeight = ui_planeWeight;
 
     bool result = false;
 
@@ -240,6 +243,12 @@ bool triggerClearIterationByUI() {
     }
     if (ui_positionWeight != last_ui_positionWeight) {
         last_ui_positionWeight = ui_positionWeight;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_planeWeight != last_ui_planeWeight) {
+        last_ui_planeWeight = ui_planeWeight;
         if (ui_denoise) {
             result = true;
         }
@@ -279,8 +288,19 @@ bool triggerClearIterationByUI() {
 }
 
 void runCuda() {
-    if (triggerClearIterationByUI()) {
+    static glm::mat4 perspectiveMatrix = renderState->camera.getPerspective();
+    scene->state.lastCamera = scene->state.camera;
+    bool uiChanged = triggerClearIterationByUI();
+    if (uiChanged) {
+        camchanged = true;
         iteration = 0;
+    }
+
+    if (!ui_temporal) {
+        frame = 0;
+    }
+    else {
+        ++frame;
     }
 
     if (lastLoopIterations != ui_iterations) {
@@ -306,12 +326,15 @@ void runCuda() {
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
         camchanged = false;
+
+        cam.worldToView = glm::lookAt(cam.position, cam.lookAt, cam.up);
+        cam.worldToScreen = perspectiveMatrix * cam.worldToView;
     }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
 
-    if (iteration == 0) {
+    if ((ui_temporal && uiChanged) || iteration == 0) {
         pathtraceFree();
         pathtraceInit(scene);
     }
@@ -319,11 +342,11 @@ void runCuda() {
     uchar4 *pbo_dptr = NULL;
     cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
-    if (iteration < ui_iterations || ui_temporal) {
+    //if (iteration < ui_iterations || ui_temporal) {
+    if (iteration < ui_iterations) {
         iteration++;
 
         // execute the kernel
-        int frame = 0;
         pathtrace(pbo_dptr, frame, iteration);
     }
 
@@ -417,42 +440,43 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 }
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
-  if (ImGui::GetIO().WantCaptureMouse) return;
-  leftMousePressed = (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS);
-  rightMousePressed = (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS);
-  middleMousePressed = (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS);
+    if (ImGui::GetIO().WantCaptureMouse) return;
+    leftMousePressed = (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS);
+    rightMousePressed = (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS);
+    middleMousePressed = (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS);
 }
 
 void mousePositionCallback(GLFWwindow* window, double xpos, double ypos) {
-  if (xpos == lastX || ypos == lastY) return; // otherwise, clicking back into window causes re-start
-  if (leftMousePressed) {
-    // compute new camera parameters
-    phi -= static_cast<float>(xpos - lastX) / width;
-    theta -= static_cast<float>(ypos - lastY) / height;
-    theta = std::fmax(0.001f, std::fmin(theta, PI));
-    camchanged = true;
-  }
-  else if (rightMousePressed) {
-    zoom += static_cast<float>(ypos - lastY) / height;
-    zoom = std::fmax(0.1f, zoom);
-    camchanged = true;
-  }
-  else if (middleMousePressed) {
-    renderState = &scene->state;
-    Camera &cam = renderState->camera;
-    glm::vec3 forward = cam.view;
-    forward.y = 0.0f;
-    forward = glm::normalize(forward);
-    glm::vec3 right = cam.right;
-    right.y = 0.0f;
-    right = glm::normalize(right);
+    if (xpos == lastX || ypos == lastY) return; // otherwise, clicking back into window causes re-start
 
-    cam.lookAt -= (float) (xpos - lastX) * right * 0.01f;
-    cam.lookAt += (float) (ypos - lastY) * forward * 0.01f;
-    camchanged = true;
-  }
-  lastX = xpos;
-  lastY = ypos;
+    if (leftMousePressed) {
+        // compute new camera parameters
+        phi -= static_cast<float>(xpos - lastX) / width;
+        theta -= static_cast<float>(ypos - lastY) / height;
+        theta = std::fmax(0.001f, std::fmin(theta, PI));
+        camchanged = true;
+    }
+    else if (rightMousePressed) {
+        zoom += static_cast<float>(ypos - lastY) / height;
+        zoom = std::fmax(0.1f, zoom);
+        camchanged = true;
+    }
+    else if (middleMousePressed) {
+        renderState = &scene->state;
+        Camera &cam = renderState->camera;
+        glm::vec3 forward = cam.view;
+        forward.y = 0.0f;
+        forward = glm::normalize(forward);
+        glm::vec3 right = cam.right;
+        right.y = 0.0f;
+        right = glm::normalize(right);
+
+        cam.lookAt -= (float) (xpos - lastX) * right * 0.01f;
+        cam.lookAt += (float) (ypos - lastY) * forward * 0.01f;
+        camchanged = true;
+    }
+    lastX = xpos;
+    lastY = ypos;
 }
 
 void unitTest() {

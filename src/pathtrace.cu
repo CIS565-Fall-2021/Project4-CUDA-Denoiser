@@ -15,6 +15,7 @@
 #include "pathtrace.h"
 #include "intersections.h"
 #include "interactions.h"
+#include "main.h"
 
 #if ENABLE_ADVANCED_PIPELINE
 #define shadePipeline shadeAndScatter
@@ -520,9 +521,11 @@ __global__ void shadeAndScatter (
             thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, depth);
             thrust::uniform_real_distribution<float> u01(0, 1);
 
+            Ray inRay = pathSegments[idx].ray;
+
             Material material = materials[intersection.materialId];
             //printf("emitColor[%f,%f]=...\n", intersection.uv.x, intersection.uv.y);
-            glm::vec3 materialColor = material.getDiffuse(intersection.uv);
+            glm::vec3 materialColor = material.materialType == MaterialType::DIELECTRIC ? material.getSpecular(intersection.uv) : material.getDiffuse(intersection.uv);//material.getDiffuse(intersection.uv);
             //printf("emitColor[%f,%f]=<%f,%f,%f>\n", intersection.uv.x, intersection.uv.y, materialColor.x, materialColor.y, materialColor.z);///TEST
             intersection.surfaceNormal = glm::normalize(intersection.surfaceNormal);
             // TODO: Normal map?
@@ -556,11 +559,10 @@ __global__ void shadeAndScatter (
 
             // GBuffer hit
             if (depth == 1) {
-                Ray r = pathSegments[idx].ray;
                 GBufferPixel gBufferData;
                 gBufferData.copyFromIntersection(intersection);
-                gBufferData.baseColor = material.getDiffuse(intersection.uv);
-                gBufferData.position = r.origin + r.direction * intersection.t;
+                gBufferData.baseColor = materialColor;
+                gBufferData.position = inRay.origin + inRay.direction * intersection.t;
                 //printf("geom%d, pixel%d stencil = %d\n", intersection.geometryId, pathSegments[idx].pixelIndex, intersection.stencilId);//TEST
 
                 pathSegments[idx].gBufferData = gBufferData;
@@ -795,7 +797,8 @@ void pathtrace(uchar4* pbo, int frame, int iter) {
 
     // Assemble this iteration and apply it to the image
     dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
-    finalGather<<<numBlocksPixels, blockSize1d>>>(pixelcount, dev_image, dev_paths, iter);
+    finalGather<<<numBlocksPixels, blockSize1d>>>(pixelcount, dev_image, dev_paths, ui_denoise && ui_temporal ? 1 : iter);
+    //finalGather<<<numBlocksPixels, blockSize1d>>>(pixelcount, dev_image, dev_paths, iter);
 
     ///////////////////////////////////////////////////////////////////////////
     writeToGBuffer<<<numBlocksPixels, blockSize1d>>>(pixelcount, hst_scene->dev_GBuffer.buffer, dev_paths, iter);

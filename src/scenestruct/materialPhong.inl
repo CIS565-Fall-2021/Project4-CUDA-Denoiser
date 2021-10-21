@@ -85,6 +85,7 @@ GLM_FUNC_QUALIFIER MonteCarloReturn Material::Phong_sampleScatter_CosWeighted_Ph
 
     ui8 filpNormal = glm::dot(in, normal) > 0.f;
     glm::vec3 nrmForSample = filpNormal ? -normal : normal;
+    ui8 isSpecular = 0;
 
     if (!hasReflective) {
         sample = Phong_sampleOutWithPDF_CosWeighted(in, nrmForSample, rng);
@@ -102,12 +103,13 @@ GLM_FUNC_QUALIFIER MonteCarloReturn Material::Phong_sampleScatter_CosWeighted_Ph
             sample = Phong_sampleOutWithPDF_CosWeighted(in, nrmForSample, rng);
         }
         else {
+            isSpecular = 1;
             sample = Phong_sampleOutWithPDF_PhongSpecular(in, nrmForSample, rng);
         }
     }
     glm::vec3 out(sample);
     float cosLight = glm::max(0.f, glm::dot(out, nrmForSample));
-    glm::vec3 color = Phong_evalBSDF(in, nrmForSample, out, uv, probSpecular) * cosLight;
+    glm::vec3 color = Phong_evalBSDF(in, nrmForSample, out, uv, probSpecular) * (isSpecular && specular.exponent == 0.f ? PI : cosLight);
     return MonteCarloReturn(out, color / sample.w, 0);
 }
 

@@ -7,6 +7,28 @@
 
 #define DEBUG_TOKENS 0//1
 
+glm::mat4 Camera::getPerspective() const {
+    //glm::mat4 result(0.f);
+    //float tanFovX = tan(glm::radians(fov.x));
+    //float tanFovY = tan(glm::radians(fov.y));
+    //result[0][0] = resolution.y * 0.5f / tanFovY;//(resolution.x * 0.5f) / tanFovX;//resolution.x;
+    //result[1][1] = resolution.y * 0.5f / tanFovY;//(resolution.y * 0.5f) / tanFovY;//resolution.y;
+    //result[2][3] = 1.f;
+    ////result[3][0] = (resolution.x * 0.5f);
+    ////result[3][1] = (resolution.y * 0.5f);
+    //return result;
+
+    glm::mat4 result(0.f);
+    float tanFovX = tan(glm::radians(fov.x));
+    float tanFovY = tan(glm::radians(fov.y));
+    result[0][0] = 1.f / tanFovX;//resolution.x;
+    result[1][1] = 1.f / tanFovY;//resolution.y;
+    result[2][3] = 1.f;
+    return result;
+
+    //return glm::perspective(fov.y * 2.f, static_cast<float>(resolution.x) / resolution.y, 0.0f, 2.0f);
+}
+
 int Scene::loadMaterial(std::string materialid) {
     int id = atoi(materialid.c_str());
     if (id != materials.size()) {
@@ -352,6 +374,9 @@ int Scene::loadCamera() {
                                    2 * yscaled / (float)camera.resolution.y);
 
     camera.view = glm::normalize(camera.lookAt - camera.position);
+
+    camera.worldToView = glm::lookAt(camera.position, camera.lookAt, camera.up);
+    camera.worldToScreen = camera.getPerspective() * camera.worldToView;
 
     //set up render camera stuff
     int arraylen = camera.resolution.x * camera.resolution.y;

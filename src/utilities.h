@@ -39,6 +39,8 @@
 #define SORT_BEFORE_BUILD_BVH 0//1
 #endif // ENABLE_BVH
 
+#define DENOISE_WITH_SHARED_MEMORY 0//0
+
 using ui8 = unsigned char;
 using ui16 = unsigned short;
 using ui32 = unsigned int;

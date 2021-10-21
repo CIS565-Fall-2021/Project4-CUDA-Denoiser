@@ -475,13 +475,33 @@ glm::vec3* Scene::postProcessGPU(glm::vec3* dev_image, PathSegment* dev_paths, c
         PostProcessGPU::dividedByIter<<<blocksPerGrid2d, blockSize2d>>>(Denoise::tmpImageTextureBuffer, imageTexture, iter);
         Denoise::denoise(denoiseType, blocksPerGrid2d, blockSize2d, dev_frameBuffer, Denoise::tmpImageTextureBuffer, dev_GBuffer);
 #else // PREGATHER_FINAL_IMAGE
-        Denoise::denoise(denoiseType, blocksPerGrid2d, blockSize2d, dev_frameBuffer, imageTexture, dev_GBuffer, {
+        //static const int scale = 2;
+        Denoise::denoise(denoiseType, 
+            blocksPerGrid2d, 
+            //dim3((blocksPerGrid2d.x + scale - 1) / scale, (blocksPerGrid2d.y + scale - 1) / scale),
+            blockSize2d, 
+            //dim3(blockSize2d.x * scale, blockSize2d.y * scale), 
+            dev_frameBuffer, imageTexture, dev_GBuffer, {
+#if DENOISE_WITH_SHARED_MEMORY
+                ui_filterSize, 
+#else // DENOISE_WITH_SHARED_MEMORY
+                //ui_temporal && frame <= 1 ? ui_filterSize * 2 : ui_filterSize,
+                ui_temporal && iter <= 1 ? ui_filterSize * 2 : ui_filterSize,
+#endif // DENOISE_WITH_SHARED_MEMORY
                 ui_colorWeight,
                 ui_normalWeight,
-                ui_positionWeight
+                ui_positionWeight,
+                ui_planeWeight
+            }, renderState->camera, renderState->lastCamera, {
+                ui_temporal,
+                frame <= 1,
+                //ui_temporalAlpha,
+                glm::min(ui_temporalAlpha, 1.f / iteration),
+                ui_colorBoxK,
+                ui_tAccRadius,
+                iteration
             });
 #endif // PREGATHER_FINAL_IMAGE
-        checkCUDAError("denoise");
     }
 
     for (size_t i = 0; i < postprocesses.size(); ++i) {

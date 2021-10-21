@@ -27,6 +27,7 @@
 extern Scene* scene;
 extern RenderState* renderState;
 extern int iteration;
+extern int frame;
 
 extern int width;
 extern int height;
@@ -39,6 +40,7 @@ extern int ui_filterSize;
 extern float ui_colorWeight;
 extern float ui_normalWeight;
 extern float ui_positionWeight;
+extern float ui_planeWeight;
 extern bool ui_temporal;
 extern float ui_temporalAlpha;
 extern int ui_tAccRadius;

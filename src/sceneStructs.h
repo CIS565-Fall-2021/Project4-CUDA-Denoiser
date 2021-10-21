@@ -7,6 +7,8 @@
 #include "scenestruct/material.h"
 #include "scenestruct/geometry.h"
 
+
+
 struct Camera {
     glm::ivec2 resolution;
     glm::vec3 position;
@@ -16,10 +18,15 @@ struct Camera {
     glm::vec3 right;
     glm::vec2 fov;
     glm::vec2 pixelLength;
+
+    glm::mat4 worldToView;
+    glm::mat4 worldToScreen;
+
+    glm::mat4 getPerspective() const;
 };
 
 struct RenderState {
-    Camera camera;
+    Camera camera, lastCamera;
     unsigned int iterations;
     int traceDepth;
     std::vector<glm::vec3> image;
