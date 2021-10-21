@@ -6,6 +6,7 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include "tiny_gltf.h"
+#include <queue>
 
 Scene::Scene(string filename)
 {
@@ -56,6 +57,36 @@ void findBoundingBox(glm::vec3 v, Geom &g)
     g.minBounding.x = g.minBounding.x > v.x ? v.x : g.minBounding.x;
     g.minBounding.y = g.minBounding.y > v.y ? v.y : g.minBounding.y;
     g.minBounding.z = g.minBounding.z > v.z ? v.z : g.minBounding.z;
+}
+
+glm::mat4 getNodeTransform(const tinygltf::Node &node) {
+    glm::vec3 translation(0.f);
+    glm::vec3 rotation(0.f);
+    glm::quat q;
+    glm::vec3 scale(1.f);
+    
+    for (int i = 0; i < node.translation.size(); i++) {
+        translation[i] = node.translation[i];
+    }
+    for (int i = 0; i < node.rotation.size(); i++) {
+        q[i] = node.rotation[i];
+    }
+    for (int i = 0; i < node.scale.size(); i++) {
+        scale[i] = node.scale[i];
+    }
+    rotation = glm::degrees(glm::eulerAngles(q));
+
+    glm::mat4 result = utilityCore::buildTransformationMatrix(translation, rotation, scale);
+    if (node.matrix.size() > 0) {
+        for (int i = 0; i < 4; i++) {
+            for (int j = 0; j < 4; j++) {
+
+                result[i][j] = node.matrix[i * 4 + j];
+            }
+        }
+    }
+
+    return result;
 }
 
 int Scene::loadGLTF()
@@ -114,6 +145,7 @@ int Scene::loadGLTF()
     tinygltf::TinyGLTF loader;
     string err;
     string warn;
+    std::cout << gltfPath + gltfName << "\n";
     bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, (gltfPath + gltfName).c_str());
     if (!warn.empty())
     {
@@ -132,31 +164,24 @@ int Scene::loadGLTF()
     }
 
     // load node transformation
-    std::map<int, glm::mat4> nodeTrans;
+    std::map<int, glm::mat4> nodeTrans; // key mesh index
+    std::map<int, glm::mat4> tempNodeTrans; // key node index
+    int nodeIdx = 0;
     for (const tinygltf::Node &node : model.nodes)
     {
-        if (node.mesh == -1)
-        {
-            continue;
+        glm::mat4 currTrans = getNodeTransform(node);
+        std::cout << nodeIdx << " node trans: " << glm::to_string(currTrans) << "\n";
+        if (tempNodeTrans.find(nodeIdx) != tempNodeTrans.end()) {
+            currTrans = tempNodeTrans[nodeIdx] * currTrans;
         }
-        glm::vec3 translation(0.f);
-        glm::vec4 rotation(0.f);
-        glm::vec3 scale(1.f);
-        for (int i = 0; i < node.translation.size(); i++)
-        {
-            translation[i] = node.translation[i];
+        for (int i = 0; i < node.children.size(); i++) {
+            tempNodeTrans[node.children[i]] = currTrans;
         }
-        for (int i = 0; i < node.rotation.size(); i++)
+        if (node.mesh != -1)
         {
-            rotation[i] = node.rotation[i];
+            nodeTrans[node.mesh] = currTrans;
         }
-        for (int i = 0; i < node.scale.size(); i++)
-        {
-            scale[i] = node.scale[i];
-        }
-
-        glm::mat4 trans = utilityCore::buildTransformationMatrix(translation, glm::vec3(rotation), scale);
-        nodeTrans[node.mesh] = trans;
+        nodeIdx++;
     }
 
     std::vector<int> meshTriIndices;
@@ -170,11 +195,12 @@ int Scene::loadGLTF()
             newGeom.materialid = materialid;
             newGeom.minBounding = glm::vec3(FLT_MAX);
             newGeom.maxBounding = glm::vec3(FLT_MIN);
-            std::cout << "node trans: " << glm::to_string(nodeTrans[meshIdx]) << "\n";
             newGeom.transform = utilityCore::buildTransformationMatrix(translation, rotation, scale) * nodeTrans[meshIdx];
             newGeom.inverseTransform = glm::inverse(newGeom.transform);
             newGeom.invTranspose = glm::inverseTranspose(newGeom.transform);
             newGeom.triStartIdx = triIdx;
+
+
             const tinygltf::Accessor &idxAccessor = model.accessors[primitive.indices];
             const tinygltf::BufferView &idxBufferView = model.bufferViews[idxAccessor.bufferView];
             const tinygltf::Buffer &idxBuffer = model.buffers[idxBufferView.buffer];
@@ -212,7 +238,7 @@ int Scene::loadGLTF()
                 m.indexOfRefraction = 0;
                 const tinygltf::Material tempM = model.materials[primitive.material];
                 const tinygltf::TextureInfo baseTexture = tempM.pbrMetallicRoughness.baseColorTexture;
-                if (baseTexture.texCoord == 0)
+                if (baseTexture.texCoord == 0 && baseTexture.index != -1)
                 {
                     m.tex.textureOffset = textures.size();
                     int imageId = model.textures[baseTexture.index].source;
@@ -232,7 +258,7 @@ int Scene::loadGLTF()
                     std::cout << "texture size: " << textures.size() << "\n";
                 }
                 const tinygltf::NormalTextureInfo normalTexture = tempM.normalTexture;
-                if (normalTexture.texCoord == 0)
+                if (normalTexture.texCoord == 0 && normalTexture.index != -1)
                 {
                     m.bump.textureOffset = textures.size();
                     int imageId = model.textures[normalTexture.index].source;
@@ -253,6 +279,7 @@ int Scene::loadGLTF()
                 newGeom.materialid = materials.size();
                 materials.push_back(m);
             }
+
 
             for (size_t i = 0; i < idxAccessor.count; i += 3)
             {
