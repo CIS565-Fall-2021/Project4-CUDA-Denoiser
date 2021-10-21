@@ -127,7 +127,7 @@ static ShadeableIntersection* dev_intersections = nullptr;
 static ShadeableIntersection* dev_cachedIntersections = nullptr;
 static GBufferPixel* dev_gBuffer = NULL;
 
-void pathtraceInit(Scene *scene) 
+void pathtraceInit(Scene *scene)
 {
     hst_scene = scene;
     const Camera &cam = hst_scene->state.camera;
@@ -164,7 +164,7 @@ void pathtraceInit(Scene *scene)
     checkCUDAError("pathtraceInit");
 }
 
-void pathtraceFree() 
+void pathtraceFree()
 {
     cudaFree(dev_image);  // no-op if dev_image is null
     cudaFree(dev_paths);
@@ -179,14 +179,14 @@ void pathtraceFree()
     checkCUDAError("pathtraceFree");
 }
 
-// Generate PathSegments with rays from the camera through the screen into the 
+// Generate PathSegments with rays from the camera through the screen into the
 // scene, which is the first bounce of rays.
 __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, PathSegment* pathSegments)
 {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
-    if (x < cam.resolution.x && y < cam.resolution.y) 
+    if (x < cam.resolution.x && y < cam.resolution.y)
     {
         int index = x + (y * cam.resolution.x);
 
@@ -234,7 +234,7 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 }
 
 // handles generating ray intersections.
-__global__ void computeIntersections(int depth,  
+__global__ void computeIntersections(int depth,
                                      PathSegment* pathSegments, int num_paths,
                                      Geom* geoms, int geoms_size,
                                      Triangle* tris,
@@ -292,7 +292,7 @@ __global__ void computeIntersections(int depth,
                     }
                 }
             }
-            else 
+            else
             {
                 if (geom.type == CUBE)
                 {
@@ -327,7 +327,7 @@ __global__ void computeIntersections(int depth,
     }
 }
 
-// processes rays based on intersections. 
+// processes rays based on intersections.
 // For non-terminating rays calls scatterRay for scattering and shading.
 __global__ void shadeBSDF(int iter,
                           int depth,
@@ -335,7 +335,7 @@ __global__ void shadeBSDF(int iter,
                           ShadeableIntersection* shadeableIntersections,
                           PathSegment* pathSegments,
                           Material* materials,
-                          glm::vec3* dev_texData) 
+                          glm::vec3* dev_texData)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_paths) return;
@@ -343,38 +343,38 @@ __global__ void shadeBSDF(int iter,
     PathSegment& pathSeg = pathSegments[idx];
     ShadeableIntersection& intersection = shadeableIntersections[idx];
 
-    if (intersection.t > 0.f) 
+    if (intersection.t > 0.f)
     {
         Material mat = materials[intersection.materialId];
-        if (mat.emittance > 0.f) 
+        if (mat.emittance > 0.f)
         {
             pathSeg.remainingBounces = 0;
             pathSeg.color *= mat.color * mat.emittance;
         }
-        else 
+        else
         {
             int bounces = --pathSeg.remainingBounces;
-            if (bounces > 0) 
+            if (bounces > 0)
             {
                 thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, depth);
-                scatterRay(pathSeg, 
-                           getPointOnRay(pathSeg.ray, intersection.t), 
-                           intersection.surfaceNormal, 
+                scatterRay(pathSeg,
+                           getPointOnRay(pathSeg.ray, intersection.t),
+                           intersection.surfaceNormal,
                            intersection.uv,
-                           mat, 
+                           mat,
                            dev_texData,
                            rng);
             }
-            else 
+            else
             {
                 pathSeg.color = glm::vec3(0.f);
             }
         }
     }
-    else 
+    else
     {
 #if (STREAM_COMPACTION == 0)
-        if (pathSeg.remainingBounces > 0) 
+        if (pathSeg.remainingBounces > 0)
         {
             pathSeg.remainingBounces = 0;
             pathSeg.color = glm::vec3(0.f);
@@ -417,7 +417,7 @@ __global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterati
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
  */
-void pathtrace(int frame, int iter) 
+void pathtrace(int frame, int iter)
 {
     const int traceDepth = hst_scene->state.traceDepth;
     const Camera &cam = hst_scene->state.camera;
@@ -472,7 +472,7 @@ void pathtrace(int frame, int iter)
     // Empty gbuffer
     cudaMemset(dev_gBuffer, 0, pixelcount * sizeof(GBufferPixel));
 
-    while (num_paths > 0) 
+    while (num_paths > 0)
     {
         dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
 
@@ -514,7 +514,7 @@ void pathtrace(int frame, int iter)
 #if SORT_BY_MATERIAL
         thrust::sort_by_key(thrust::device, dev_intersections, dev_intersections + num_paths, dev_paths);
 #endif
-        
+
         shadeBSDF<<<numblocksPathSegmentTracing, blockSize1d>>>(iter, depth, num_paths, dev_intersections, dev_paths, dev_materials, dev_texData);
 
 #if STREAM_COMPACTION
@@ -538,7 +538,7 @@ void pathtrace(int frame, int iter)
     cudaMemcpy(hst_scene->state.image.data(), dev_image, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
 
 #if PERFORMANCE_ANALYSIS
-    if (iter <= numIters) 
+    if (iter <= numIters)
     {
         timer().endCpuTimer();
         totalTime += timer().getCpuElapsedTimeForPreviousOperation();
@@ -573,7 +573,8 @@ void showImage(uchar4* pbo, int iter)
     sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
 }
 
-__global__ void aTrousFilter(glm::ivec2 resolution, int stepWidth, float cphi, const glm::vec3* img)
+__global__ void aTrousFilter(glm::ivec2 resolution, int stepWidth, float cphi, float nphi, float pphi,
+                             const glm::vec3* img, const GBufferPixel* gbuf)
 {
     int x = blockDim.x * blockIdx.x + threadIdx.x;
     int y = blockDim.y * blockIdx.y + threadIdx.y;
@@ -582,6 +583,8 @@ __global__ void aTrousFilter(glm::ivec2 resolution, int stepWidth, float cphi, c
     int idx = y * resolution.x + x;
     constexpr float kernel[5] = { 1.f / 16.f, 1.f / 4.f, 3.f / 8.f, 1.f / 4.f, 1.f / 16.f };
 
+    glm::vec3 sum(0.f);
+    float cumw = 0.f;
     for (int i = 0; i < 5; ++i)
     {
         for (int j = 0; j < 5; ++j)
@@ -590,9 +593,22 @@ __global__ void aTrousFilter(glm::ivec2 resolution, int stepWidth, float cphi, c
             int ty = glm::clamp(y + (j - 2) * stepWidth, 0, resolution.y);
             int tidx = ty * resolution.x + tx;
 
-            glm::vec3 t = img[idx] - img[tidx];
+            glm::vec3 ctmp = img[tidx];
+            glm::vec3 t = img[idx] - ctmp;
             float dist2 = glm::dot(t, t);
             float cw = min(exp(-dist2 / cphi), 1.f);
+
+            t = gbuf[idx].normal - gbuf[tidx].normal;
+            dist2 = max(glm::dot(t, t) / (stepWidth * stepWidth), 0.f);
+            float nw = min(exp(-dist2 / nphi), 1.f);
+
+            t = gbuf[idx].pos - gbuf[tidx].pos;
+            dist2 = glm::dot(t, t);
+            float pw = min(exp(-dist2 / pphi), 1.f);
+
+            float weight = cw * nw * pw;
+            sum += ctmp * weight * kernel[i] * kernel[j];
+            cumw += weight * kernel[i] * kernel[j];
         }
     }
 }
@@ -604,10 +620,10 @@ void denoise()
     const dim3 blocksPerGrid2d((resolution.x + blockSize2d.x - 1) / blockSize2d.x,
                                (resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
-    for (struct { int stepWidth; float cphi; } iter = { 1, ui_colorWeight }; 
-         iter.stepWidth * 4 + 1 <= ui_filterSize; 
+    for (struct { int stepWidth; float cphi; } iter = { 1, ui_colorWeight };
+         iter.stepWidth * 4 + 1 <= ui_filterSize;
          iter.stepWidth *= 2, iter.cphi *= 0.5f)
     {
-        aTrousFilter<<<blocksPerGrid2d, blockSize2d>>>(resolution, iter.stepWidth, iter.cphi, dev_image);
+        aTrousFilter<<<blocksPerGrid2d, blockSize2d>>>(resolution, iter.stepWidth, iter.cphi, ui_normalWeight, ui_positionWeight, dev_image, dev_gBuffer);
     }
 }
