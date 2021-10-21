@@ -96,12 +96,11 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
 
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        float timeToIntersect = gBuffer[index].t * 256.0;
-
+        //float timeToIntersect = gBuffer[index].t * 256.0;
         pbo[index].w = 0;
-        pbo[index].x = timeToIntersect;
-        pbo[index].y = timeToIntersect;
-        pbo[index].z = timeToIntersect;
+        pbo[index].x = gBuffer[index].normal.x * 256.0f;
+        pbo[index].y = gBuffer[index].normal.y * 256.0f;
+        pbo[index].z = gBuffer[index].normal.z * 256.0f;
     }
 }
 
@@ -309,7 +308,10 @@ __global__ void generateGBuffer (
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < num_paths)
   {
-    gBuffer[idx].t = shadeableIntersections[idx].t;
+    //gBuffer[idx].t = shadeableIntersections[idx].t;
+    gBuffer[idx].normal = shadeableIntersections[idx].surfaceNormal;
+    gBuffer[idx].position = getPointOnRay(pathSegments[idx].ray, 
+                                          shadeableIntersections[idx].t);
   }
 }
 
@@ -325,13 +327,22 @@ __global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterati
 	}
 }
 
-__global__ void denoise(int n, GBufferPixel* gbuff, glm::vec3* image, glm::vec3 * dnImage, int steps, int imageWidth) {
+__global__ void denoise(int n, 
+						GBufferPixel* gbuff, 
+						glm::vec3* image, 
+						glm::vec3 * dnImage,
+						int steps, 
+						int imageWidth,
+						float normalWeight,
+						float posWeight, 
+						float colorWeight)
+{
 	int index = (blockIdx.x * blockDim.x) + threadIdx.x;
 
     if (index < n)
     {
-		
         glm::vec3 colSum = glm::vec3(0.0f);
+        float wSum = 0.0f;
         // hardcode a 5x5 Gaussian filter
         float GaussianFilter[5][5] = { {1,  4, 6,  4,  1},
                                        {4, 16, 24, 16, 4},
@@ -348,30 +359,64 @@ __global__ void denoise(int n, GBufferPixel* gbuff, glm::vec3* image, glm::vec3 
         int imStartX = -2;
         int imStartY = -2;
 
+
+        // store the gbuffer values for the center pixel of our filter
+        // i.e. the one we're actually calculating the color for
+        glm::vec3 centralNorm = gbuff[index].normal;
+        glm::vec3 centralPos = gbuff[index].position;
+        glm::vec3 centralCol = image[index];
+
         // the cell count in 2d, starting in the upper left corner of
         // our 5x5 filter
-        for (int step = 0; step < steps; step++) {
+        for (int step = 1; step <= steps; step++) {
             for (int y = 0; y < 5; y++) {
                 for (int x = 0; x < 5; x++) {
                     int imX = (imStartX + x) * uStepIm * step;
                     int imY = (imStartY + y) * vStepIm * step;
 
+                    // i is the index for 1d representations of our 2d
+                    // data, i.e. the beauty pass and the gbuffer
                     int i = index + imX + imY;
                     if (i < 0 || i >= n) {
+                        // i can be out of bounds along the edges of the image
                         continue;
                     }
 
+                    // get the Gaussian value for this pixel
                     float gVal = GaussianFilter[y][x];
 
-                    colSum += gVal * image[i];
+                    // get the gbuffer values for this pixel
+                    glm::vec3 nVal = gbuff[i].normal;
+                    glm::vec3 pVal = gbuff[i].position;
+                    glm::vec3 cVal = image[i];
+
+                    // get the distance of the gbuffer values 
+                    // from our central pixel
+                    float nDist = max(glm::dot(centralNorm - nVal, centralNorm - nVal)/(step*step), 0.0f);
+                    float pDist = glm::dot(centralPos - pVal, centralPos - pVal);
+                    float cDist = glm::dot(centralCol - cVal, centralCol - cVal);
+
+                    // get the weights based on these distances
+                    // and our input values
+                    float nw = min(exp(-1.0f * nDist / normalWeight), 1.0f);
+                    float pw = min(exp(-1.0f * pDist / posWeight), 1.0f);
+                    float cw = min(exp(-1.0f * cDist / colorWeight), 1.0f);
+
+                    // get the overall 
+                    float w = nw * pw * cw;
+                    //float w = 1.0f;
+
+                    colSum += cVal * w * gVal;
+                    wSum += w * gVal;
                 }
             }
         }
 
-        dnImage[index] = colSum / (256.0f * steps);
-
         //bring denoise
-        //dnImage[index] = glm::vec3((float)index / n);
+        volatile float3 foo = make_float3(colSum.x, colSum.y, colSum.z);
+        volatile float3 bar = make_float3(centralCol.x, centralCol.y, centralCol.z);
+        dnImage[index] = colSum / wSum;
+        //dnImage[index] = colSum / (256.0f * steps);
     }
 }
 
@@ -478,13 +523,21 @@ void pathtrace(int frame, int iter) {
 
     ///////////////////////////////////////////////////////////////////////////
     if (*hst_scene->state.denoiseSettings->denoise){
+
+        float nWeight = pow(*hst_scene->state.denoiseSettings->normalWeight, 2);
+        float pWeight = pow(*hst_scene->state.denoiseSettings->positionWeight, 2);
+        float cWeight = pow(*hst_scene->state.denoiseSettings->colorWeight, 2);
+
         int steps = *hst_scene->state.denoiseSettings->filterSize / 5;
         denoise <<<numBlocksPixels, blockSize1d>>>(num_paths, 
 												   dev_gBuffer, 
 												   dev_image, 
 												   dev_dnImage, 
 												   steps, 
-												   cam.resolution.x);
+												   cam.resolution.x,
+                                                   nWeight, 
+												   pWeight,
+												   cWeight);
     }
 
     // CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
