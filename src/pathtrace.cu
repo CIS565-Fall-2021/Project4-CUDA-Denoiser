@@ -491,6 +491,10 @@ void pathtrace(int frame, int iter) {
 	checkCUDAError("trace one bounce");
 	cudaDeviceSynchronize();
 
+    if (depth == 0) {
+        generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer);
+    }
+
   shadeSimpleMaterials<<<numblocksPathSegmentTracing, blockSize1d>>> (
     iter,
     num_paths,
@@ -498,10 +502,6 @@ void pathtrace(int frame, int iter) {
     dev_paths,
     dev_materials
   );
-
-  if (depth == 0) {
-      generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer);
-  }
 
   depth++;
 

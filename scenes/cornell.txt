@@ -127,7 +127,7 @@ SCALE       3 3 3
 // sphere 
 OBJECT 8
 sphere
-material 1
+material 4
 TRANS       2 5 -2
 ROTAT       0 0 0
 SCALE       3 3 3
