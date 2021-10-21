@@ -32,20 +32,20 @@
 // Times execution of whole pathtrace, assumes memops time << computation time
 // #define TIME_PATHTRACE
 // Groups the rays by material type for better warp coherence (stream compact)
-// #define GROUP_RAYS
+#define GROUP_RAYS
 // Removes finished rays
 #define COMPACT_RAYS
 // Jitter the ray directions slightly to trade noise for jagged edges
-#define ANTIALIASING
+// #define ANTIALIASING
 // Use thin lens to randomize ray origin to approximate depth of field
-#define DEPTH_OF_FIELD
+// #define DEPTH_OF_FIELD
 #if defined(ANTIALIASING) || defined(DEPTH_OF_FIELD)
 #else
 // Cache first iter; only if first rays cast are deterministic
-#define CACHE_FIRST
+// #define CACHE_FIRST
 #endif
 // Use AABBs to quick check mesh intersections
-#define BV_CULL
+// #define BV_CULL
 
 #ifdef DEPTH_OF_FIELD
 #define LENS_RAD 0.0625f
@@ -166,4 +166,9 @@ struct ShadeableIntersection
     int materialId = -1;
     glm::vec2 uvs = glm::vec2(0.f);
     bool useTexture = false;
+};
+
+struct GBufferPixel
+{
+    float t;
 };
