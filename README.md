@@ -34,7 +34,7 @@ Without the denoiser, a path tracer requires about 1000 iterations to achieve th
 
 ![](img/resolution.png)
 
-From above plot, we can see that the runtime increases as the resolution increases. This is because we have more pixel to compute and we can compute more filter size (stepwidth can be larger) for each pixel.
+From above plot, we can see that the runtime increases as the resolution increases. This is because we have more pixel to compute and the neighbour pixels' data stored in global memory is further which requires more time to access.
 
 ### Filter Size VS Denoiser Runtime
 
