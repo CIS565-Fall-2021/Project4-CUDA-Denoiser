@@ -24,6 +24,7 @@ int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
 bool ui_denoise = false;
+GBufferType ui_gbufferType;
 int ui_filterSize = 80;
 float ui_colorWeight = 0.45f;
 float ui_normalWeight = 0.35f;
@@ -181,7 +182,7 @@ void runCuda() {
         denoised = true;
     }
     else if (ui_showGbuffer)
-      showGBuffer(pbo_dptr);
+      showGBuffer(pbo_dptr, ui_gbufferType);
     else
       showImage(pbo_dptr, iteration);
 
@@ -207,11 +208,25 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         saveImage();
         break;
       case GLFW_KEY_SPACE:
-        camchanged = true;
-        renderState = &scene->state;
-        Camera &cam = renderState->camera;
-        cam.lookAt = ogLookAt;
-        break;
+      {
+          camchanged = true;
+          renderState = &scene->state;
+          Camera& cam = renderState->camera;
+          cam.lookAt = ogLookAt;
+          break;
+      }
+      case GLFW_KEY_1:
+      case GLFW_KEY_KP_1:
+          ui_gbufferType = GBufferType::COLOR;
+          break;
+      case GLFW_KEY_2:
+      case GLFW_KEY_KP_2:
+          ui_gbufferType = GBufferType::POSITION;
+          break;
+      case GLFW_KEY_3:
+      case GLFW_KEY_KP_3:
+          ui_gbufferType = GBufferType::NORMAL;
+          break;
       }
     }
 }

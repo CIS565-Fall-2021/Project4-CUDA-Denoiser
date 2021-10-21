@@ -16,9 +16,16 @@ struct Denoise
 	//float sigma2RT, sigma2N, sigma2X;
 };
 
+enum GBufferType
+{
+	COLOR = 0,
+	POSITION,
+	NORMAL
+};
+
 void pathtraceInit(Scene *scene);
 void pathtraceFree();
 void pathtrace(int frame, int iteration);
-void showGBuffer(uchar4 *pbo);
+void showGBuffer(uchar4 *pbo, GBufferType type);
 void showImage(uchar4 *pbo, int iter);
 void showDenoisedImage(uchar4* pbo, int iter, Denoise denoise);

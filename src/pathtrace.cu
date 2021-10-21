@@ -105,25 +105,11 @@ __global__ void filterImage(glm::ivec2 resolution,
             // filter
             float h_q = denoise.kernel[i];
 
-            // weights
-            /*float w_rt = glm::clamp((0.5f - glm::distance(image[index] / (float)iter, image[qIndex] / (float)iter)), 0.f, 1.f) * denoise.colorWeight;
-            float w_n = glm::clamp(glm::dot(gBuffer[index].normal, gBuffer[qIndex].normal), 0.f, 1.f) * denoise.normalWeight;
-            float w_x = glm::clamp((0.2f / glm::distance(gBuffer[index].position, gBuffer[qIndex].position)), 0.f, 1.f) * denoise.positionWeight;*/
-           
-            glm::vec3 t = (image[index] - image[qIndex])/((float)iter); // divide by iter?
-            float dist2 = glm::dot(t, t);
-            float w_rt = glm::min(glm::exp(-dist2 / denoise.colorWeight), 1.0f);
+            float w_rt = glm::exp(-glm::distance(image[index] / (float)iter, image[qIndex] / (float)iter) / 4);
+            float w_n = powf(glm::max(0.f, glm::dot(gBuffer[index].normal, gBuffer[qIndex].normal)), 64);
+            float w_x = glm::exp(-glm::distance(gBuffer[index].position, gBuffer[qIndex].position)/10); // TODO: add gradient
 
-            t = gBuffer[index].normal - gBuffer[qIndex].normal;
-            dist2 = glm::max(glm::dot(t, t), 0.f);
-            float w_n = glm::min(glm::exp(-dist2 / denoise.normalWeight), 1.f);
-
-            // position seems to be off...
-            //t = gBuffer[index].position - gBuffer[qIndex].position;
-            //dist2 = glm::dot(t, t);
-            //float w_x = glm::min(glm::exp(-dist2 / denoise.positionWeight), 1.f);
-
-            float weight = w_rt * w_n;
+            float weight = w_n * w_rt * w_x;
 
             // summation
             sum += h_q * weight * pixQ;
@@ -134,8 +120,7 @@ __global__ void filterImage(glm::ivec2 resolution,
     }
 }
 
-//#define VISUALIZE_NORMAL
-__global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
+__global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer, GBufferType type) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
@@ -146,27 +131,30 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
 
         if (gBuffer[index].t > 0.0)
         {
-#ifdef VISUALIZE_NORMAL
-            pbo[index].x = glm::abs(gBuffer[index].normal.x * 255.f);
-            pbo[index].y = glm::abs(gBuffer[index].normal.y * 255.f);
-            pbo[index].z = glm::abs(gBuffer[index].normal.z * 255.f);
-#else
-#ifdef VISUALIZE_POSITION
-            pbo[index].x = glm::clamp((gBuffer[index].position.x + 5) / 10.f * 255.f, 0.f, 255.f) * .75f;
-            pbo[index].y = glm::clamp((gBuffer[index].position.y + 5) / 10.f * 255.f, 0.f, 255.f) * .75f;
-            pbo[index].z = glm::clamp((gBuffer[index].position.z + 5) / 10.f * 255.f, 0.f, 255.f) * .75f;
-#else
-            pbo[index].x = gBuffer[index].color.x * 255.f;
-            pbo[index].y = gBuffer[index].color.y * 255.f;
-            pbo[index].z = gBuffer[index].color.z * 255.f;
-#endif
-#endif
-        }
-        else
-        {
-            pbo[index].x = 0;
-            pbo[index].y = 0;
-            pbo[index].z = 0;
+            if (type == GBufferType::NORMAL)
+            {
+                pbo[index].x = glm::abs(gBuffer[index].normal.x * 255.f);
+                pbo[index].y = glm::abs(gBuffer[index].normal.y * 255.f);
+                pbo[index].z = glm::abs(gBuffer[index].normal.z * 255.f);
+            }
+            else if (type == GBufferType::POSITION)
+            {
+                pbo[index].x = glm::clamp((gBuffer[index].position.x + 5) / 10.f * 255.f, 0.f, 255.f) * .75f;
+                pbo[index].y = glm::clamp((gBuffer[index].position.y + 5) / 10.f * 255.f, 0.f, 255.f) * .75f;
+                pbo[index].z = glm::clamp((gBuffer[index].position.z + 5) / 10.f * 255.f, 0.f, 255.f) * .75f;
+            }
+            else if (type == GBufferType::COLOR)
+            {
+                pbo[index].x = glm::clamp((int)(gBuffer[index].color.x * 255.0), 0, 255);
+                pbo[index].y = glm::clamp((int)(gBuffer[index].color.y * 255.0), 0, 255);
+                pbo[index].z = glm::clamp((int)(gBuffer[index].color.z * 255.0), 0, 255);
+            }
+            else
+            {
+                pbo[index].x = 0;
+                pbo[index].y = 0;
+                pbo[index].z = 0;
+            }
         }
     }
 }
@@ -379,18 +367,13 @@ __global__ void generateGBuffer (
   int num_paths,
   ShadeableIntersection* shadeableIntersections,
 	PathSegment* pathSegments,
-  GBufferPixel* gBuffer, bool color) {
+  GBufferPixel* gBuffer) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < num_paths)
   {
-      if (!color)
-      {
-          gBuffer[idx].t = shadeableIntersections[idx].t;
-          gBuffer[idx].position = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
-          gBuffer[idx].normal = shadeableIntersections[idx].surfaceNormal;
-       }
-      else
-        gBuffer[idx].color = pathSegments[idx].color;
+    gBuffer[idx].t = shadeableIntersections[idx].t;
+    gBuffer[idx].position = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
+    gBuffer[idx].normal = shadeableIntersections[idx].surfaceNormal;
   }
 }
 
@@ -402,6 +385,16 @@ __global__ void transferGBufferColor(
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
         image[index] = gBuffer[index].color * (float)iter;
+    }
+}
+
+__global__ void FillGBufferColor(
+    int num_paths, int iter, GBufferPixel* gBuffer, glm::vec3* image) {
+    
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < num_paths)
+    {
+        gBuffer[idx].color = image[idx] / ((float)iter);
     }
 }
 
@@ -507,15 +500,12 @@ void pathtrace(int frame, int iter) {
   );
 
   if (depth == 0) {
-      generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer, false);
+      generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer);
   }
 
   depth++;
 
   iterationComplete = depth == traceDepth;
-
-  if (iterationComplete)
-      generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer, true);
 	}
 
   // Assemble this iteration and apply it to the image
@@ -523,6 +513,8 @@ void pathtrace(int frame, int iter) {
 	finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
 
     ///////////////////////////////////////////////////////////////////////////
+
+    FillGBufferColor << <numBlocksPixels, blockSize1d >> > (pixelcount, iter, dev_gBuffer, dev_image);
 
     // CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
     // Otherwise, screenshots are also acceptable.
@@ -534,7 +526,7 @@ void pathtrace(int frame, int iter) {
 }
 
 // CHECKITOUT: this kernel "post-processes" the gbuffer/gbuffers into something that you can visualize for debugging.
-void showGBuffer(uchar4* pbo) {
+void showGBuffer(uchar4* pbo, GBufferType type) {
     const Camera &cam = hst_scene->state.camera;
     const dim3 blockSize2d(8, 8);
     const dim3 blocksPerGrid2d(
@@ -542,7 +534,7 @@ void showGBuffer(uchar4* pbo) {
             (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
     // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
-    gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
+    gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer, type);
 }
 
 void showImage(uchar4* pbo, int iter) {
