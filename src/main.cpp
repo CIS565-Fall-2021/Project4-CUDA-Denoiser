@@ -198,7 +198,18 @@ void runCuda() {
         iteration++;
         if (ui_denoise)
         {
+            cudaEvent_t start, stop;
+            cudaEventCreate(&start);
+            cudaEventCreate(&stop);
+            cudaEventRecord(start);
+
             denoisePathTracedImage();
+
+            cudaEventRecord(stop);
+            cudaEventSynchronize(stop);
+            float milliseconds = 0;
+            cudaEventElapsedTime(&milliseconds, start, stop);
+            std::cout << "Denoise: " << milliseconds << std::endl;
         }
     }
 
