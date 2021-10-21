@@ -48,18 +48,16 @@ int height;
 void FilterCreation(int filter_size, float *kernel)
 {
     // initialising standard deviation to 1.0
-    double sigma = 1.0;
-    double r, s = 2.0 * sigma * sigma;
+    float sigma = 1.0;
+    float r, s = 2.0 * sigma * sigma;
     // sum is for normalization
-    double sum = 0.0;
+    float sum = 0.0;
     int itr = 0;
-
-    int center = filter_size / 2.0f;
     // generating filter_sizexfilter_size kernel
     for (int x = -filter_size/2; x <= filter_size/2; x++) {
         for (int y = -filter_size/2; y <= filter_size/2; y++) {
-            r = sqrt( x * x + y * y );
-            kernel[itr] = (exp(-(r * r) / s)) / (PI * s);
+            r =  x * x + y * y ;
+            kernel[itr] = (glm::exp(-(r) / s)) / (PI * s);
             sum += kernel[itr];
             itr++;
         }
@@ -71,6 +69,7 @@ void FilterCreation(int filter_size, float *kernel)
         kernel[i] /= sum;
     }
 }
+
 
 //-------------------------------
 //-------------MAIN--------------
@@ -197,7 +196,12 @@ void runCuda() {
 
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr);
-    } else {
+    }
+    else if (ui_denoise)
+    {
+        showDenoise(pbo_dptr, iteration);
+    }
+    else {
       showImage(pbo_dptr, iteration);
     }
 
