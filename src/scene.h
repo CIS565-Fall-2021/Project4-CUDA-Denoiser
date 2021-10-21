@@ -13,9 +13,10 @@ using namespace std;
 class Scene {
 private:
     ifstream fp_in;
-    int loadMaterial(string materialid);
-    int loadGeom(string objectid);
+    int loadMaterialFromFile(string materialid);
+    int loadGeomFromFile(string objectid);
     int loadCamera();
+    void loadGeoAndMat();
 public:
     Scene(string filename);
     ~Scene();
