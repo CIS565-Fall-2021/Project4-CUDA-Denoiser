@@ -76,6 +76,46 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
     }
 }
 
+//Kernel that writes the denoised image to the OpenGL PBO directly.
+__global__ void sendDenoiseBufferToPBO(uchar4* pbo, glm::ivec2 resolution,
+    glm::vec3* dev_denoise_in) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        glm::vec3 pix = dev_denoise_in[index];
+
+        glm::ivec3 color;
+        color.x = glm::clamp((int)(pix.x * 255.0), 0, 255);
+        color.y = glm::clamp((int)(pix.y * 255.0), 0, 255);
+        color.z = glm::clamp((int)(pix.z * 255.0), 0, 255);
+
+        // Each thread writes one pixel location in the texture (textel)
+        pbo[index].w = 0;
+        pbo[index].x = color.x;
+        pbo[index].y = color.y;
+        pbo[index].z = color.z;
+    }
+}
+
+//Kernel that writes the image to the denoiser's input buffer after normalizing for iterations.
+__global__ void sendImageToDenoiseBuffer(glm::ivec2 resolution, int iter,
+    glm::vec3* dev_denoised_in, glm::vec3* image) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        glm::vec3 pix = image[index];
+
+        // Each thread writes one pixel location in the denoiser buffer
+        dev_denoised_in[index].x = pix.x / iter;
+        dev_denoised_in[index].y = pix.y / iter;
+        dev_denoised_in[index].z = pix.z / iter;
+    }
+}
+
 __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer, int viewChoice) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
@@ -140,6 +180,8 @@ static Mesh* dev_meshes = NULL;
 static Geom* dev_triangles = NULL;
 #endif
 
+static glm::vec3* dev_image_denoise1 = NULL;
+static glm::vec3* dev_image_denoise2 = NULL;
 
 void pathtraceInit(Scene* scene) {
     hst_scene = scene;
@@ -176,6 +218,12 @@ void pathtraceInit(Scene* scene) {
     cudaMemcpy(dev_triangles, scene->triangles.data(), scene->triangles.size() * sizeof(Geom), cudaMemcpyHostToDevice);
 #endif
 
+    cudaMalloc(&dev_image_denoise1, pixelcount * sizeof(glm::vec3));
+    cudaMemset(dev_image_denoise1, 0, pixelcount * sizeof(glm::vec3));
+
+    cudaMalloc(&dev_image_denoise2, pixelcount * sizeof(glm::vec3));
+    cudaMemset(dev_image_denoise2, 0, pixelcount * sizeof(glm::vec3));
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -195,6 +243,9 @@ void pathtraceFree() {
     cudaFree(dev_meshes);
     cudaFree(dev_triangles);
 #endif
+
+    cudaFree(dev_image_denoise1);
+    cudaFree(dev_image_denoise2);
 
     checkCUDAError("pathtraceFree");
 }
@@ -410,60 +461,6 @@ __global__ void computeIntersections(
     }
 }
 
-// LOOK: "fake" shader demonstrating what you might do with the info in
-// a ShadeableIntersection, as well as how to use thrust's random number
-// generator. Observe that since the thrust random number generator basically
-// adds "noise" to the iteration, the image should start off noisy and get
-// cleaner as more iterations are computed.
-//
-// Note that this shader does NOT do a BSDF evaluation!
-// Your shaders should handle that - this can allow techniques such as
-// bump mapping.
-__global__ void shadeFakeMaterial(
-    int iter
-    , int num_paths
-    , ShadeableIntersection* shadeableIntersections
-    , PathSegment* pathSegments
-    , Material* materials
-)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < num_paths)
-    {
-        ShadeableIntersection intersection = shadeableIntersections[idx];
-        if (intersection.t > 0.0f) { // if the intersection exists...
-          // Set up the RNG
-          // LOOK: this is how you use thrust's RNG! Please look at
-          // makeSeededRandomEngine as well.
-            thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, 0);
-            thrust::uniform_real_distribution<float> u01(0, 1);
-
-            Material material = materials[intersection.materialId];
-            glm::vec3 materialColor = material.color;
-
-            // If the material indicates that the object was a light, "light" the ray
-            if (material.emittance > 0.0f) {
-                pathSegments[idx].color *= (materialColor * material.emittance);
-            }
-            // Otherwise, do some pseudo-lighting computation. This is actually more
-            // like what you would expect from shading in a rasterizer like OpenGL.
-            // TODO: replace this! you should be able to start with basically a one-liner
-            else {
-                float lightTerm = glm::dot(intersection.surfaceNormal, glm::vec3(0.0f, 1.0f, 0.0f));
-                pathSegments[idx].color *= (materialColor * lightTerm) * 0.3f + ((1.0f - intersection.t * 0.02f) * materialColor) * 0.7f;
-                pathSegments[idx].color *= u01(rng); // apply some noise because why not
-            }
-            // If there was no intersection, color the ray black.
-            // Lots of renderers use 4 channel color, RGBA, where A = alpha, often
-            // used for opacity, in which case they can indicate "no opacity".
-            // This can be useful for post-processing and image compositing.
-        }
-        else {
-            pathSegments[idx].color = glm::vec3(0.0f);
-        }
-    }
-}
-
 /**
  * Implementation of shader that uses BSDF algorithm
  */
@@ -528,9 +525,10 @@ __global__ void generateGBuffer(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < num_paths)
     {
+        ShadeableIntersection intersect = shadeableIntersections[idx];
         gBuffer[idx].nor = shadeableIntersections[idx].surfaceNormal;
-        gBuffer[idx].pos = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
-        gBuffer[idx].t = shadeableIntersections[idx].t;
+        gBuffer[idx].pos = getPointOnRay(pathSegments[idx].ray, intersect.t);
+        gBuffer[idx].t = intersect.t;
     }
 }
 
@@ -635,7 +633,7 @@ void pathtrace(int frame, int iter, int viewChoice) {
     double intersectTime = 0.0;
     double shadeTime = 0.0;
 #endif
-    
+
     // Empty gbuffer
     cudaMemset(dev_gBuffer, 0, pixelcount * sizeof(GBufferPixel));
 
@@ -720,7 +718,7 @@ void pathtrace(int frame, int iter, int viewChoice) {
         if (depth == 0) {
             generateGBuffer<<<numblocksPathSegmentTracing, blockSize1d>>>(num_paths, dev_intersections, dev_paths, dev_gBuffer, viewChoice);
         }
-        
+
         depth++;
 
         // DONE:
@@ -786,6 +784,84 @@ void pathtrace(int frame, int iter, int viewChoice) {
         pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
 
     checkCUDAError("pathtrace");
+}
+
+__global__ void denoiseImage(float phi_c, float phi_n, float phi_p, int stepAmount,
+    GBufferPixel* gBuffer, glm::ivec2 res, glm::vec3* dev_denoised_in, glm::vec3* dev_denoised_out)
+{
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < res.x && y < res.y)
+    {
+        float gaussian[5] = {0.0625f, 0.25f, 0.375f, 0.25f, 0.0625f};
+
+        int index = x + (y * res.x);
+        int filterSpacing = 1 << stepAmount;
+
+        glm::vec3 cVal = dev_denoised_in[index];
+        glm::vec3 nVal = gBuffer[index].nor;
+        glm::vec3 pVal = gBuffer[index].pos;
+
+        glm::vec3 sum = glm::vec3(0.f);
+        float cum_w = 0.f;
+
+        for (int filterPosX = -2; filterPosX <= 2; filterPosX++)
+        {
+            float offsetX = filterPosX * filterSpacing;
+            for (int filterPosY = -2; filterPosY <= 2; filterPosY++)
+            {
+                float offsetY = filterPosY * filterSpacing;
+                float gaussianFactor2D = gaussian[filterPosX + 2] * gaussian[filterPosY + 2];
+
+                glm::ivec2 neighborPixelCoord = glm::clamp(glm::ivec2(x + offsetX, y + offsetY), glm::ivec2(0, 0), res - glm::ivec2(1, 1));
+                int neighborPixelIndex = neighborPixelCoord.x + (neighborPixelCoord.y * res.x);
+
+                glm::vec3 cNeigh = dev_denoised_in[neighborPixelIndex];
+                glm::vec3 t = cVal - cNeigh;
+                float cDist = glm::dot(t, t);
+                float c_w = glm::min(glm::exp(-cDist / (phi_c * phi_c)), 1.f);
+
+                glm::vec3 nNeigh = gBuffer[neighborPixelIndex].nor;
+                t = nVal - nNeigh;
+                float nDist = glm::max(glm::dot(t, t) / (filterSpacing * filterSpacing), 0.f);
+                float n_w = glm::min(glm::exp(-nDist / (phi_n * phi_n)), 1.f);
+
+                glm::vec3 pNeigh = gBuffer[neighborPixelIndex].pos;
+                t = pVal - pNeigh;
+                float pDist = glm::dot(t, t);
+                float p_w = glm::min(glm::exp(-pDist / (phi_p * phi_p)), 1.f);
+
+                float weight = c_w * n_w * p_w;
+                sum += cNeigh * weight * gaussianFactor2D;
+                cum_w += weight * gaussianFactor2D;
+            }
+        }
+
+        dev_denoised_out[index] = sum / cum_w;
+    }
+}
+
+void showImageDenoised(uchar4* pbo, int iter, float phi_c, float phi_n, float phi_p, int filterSize)
+{
+    const Camera& cam = hst_scene->state.camera;
+    const dim3 blockSize2d(8, 8);
+    const dim3 blocksPerGrid2d(
+        (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
+        (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
+    int numDenoiseIterations = glm::ceil(glm::log2(filterSize));
+
+    sendImageToDenoiseBuffer<<<blocksPerGrid2d, blockSize2d>>>(cam.resolution, iter, dev_image_denoise1, dev_image);
+
+    for (int step = 0; step < numDenoiseIterations; step++)
+    {
+        denoiseImage<<<blocksPerGrid2d, blockSize2d>>>(phi_c, phi_n, phi_p, step,
+            dev_gBuffer, cam.resolution, dev_image_denoise1, dev_image_denoise2);
+
+        std::swap(dev_image_denoise1, dev_image_denoise2);
+    }
+
+    sendDenoiseBufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_image_denoise1);
 }
 
 void showGBuffer(uchar4* pbo, int viewChoice) {

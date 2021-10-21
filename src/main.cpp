@@ -170,7 +170,14 @@ void runCuda() {
 
     if (ui_viewImgPosNor == 0)
     {
-        showImage(pbo_dptr, iteration);
+        if (ui_denoise)
+        {
+            showImageDenoised(pbo_dptr, iteration, ui_colorWeight, ui_normalWeight, ui_positionWeight, ui_filterSize);
+        }
+        else
+        {
+            showImage(pbo_dptr, iteration);
+        }
     }
     else
     {
