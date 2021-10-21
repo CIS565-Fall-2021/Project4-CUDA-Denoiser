@@ -666,7 +666,7 @@ __global__ void aTrousFilter(Camera cam, int stepWidth,
 void denoise()
 {
     const glm::ivec2 resolution = hst_scene->state.camera.resolution;
-    const dim3 blockSize2d(8, 8);
+    const dim3 blockSize2d(32, 32);
     const dim3 blocksPerGrid2d((resolution.x + blockSize2d.x - 1) / blockSize2d.x,
                                (resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
