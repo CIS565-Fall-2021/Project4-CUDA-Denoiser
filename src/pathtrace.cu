@@ -194,7 +194,7 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 
         if (depthOfField) {
             float lensRadius = 0.2f; // 0.003f
-            float focalDistance = 4.f;
+            float focalDistance = 6.f;
             thrust::normal_distribution<float> n01(0, 1);
             float theta = u01(rng) * TWO_PI;
             glm::vec3 circlePerturb = lensRadius * n01(rng) * (cos(theta) * cam.right + sin(theta) * cam.up);

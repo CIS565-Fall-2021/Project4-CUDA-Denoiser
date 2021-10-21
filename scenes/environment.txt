@@ -94,8 +94,8 @@ FOVY        45
 ITERATIONS  50000
 DEPTH       8
 FILE        environment
-EYE         0.0 2 10.5
-LOOKAT      0 3 5
+EYE         0.0 3 10.5
+LOOKAT      0 4 7
 UP          0 1 0
 
 
@@ -103,9 +103,9 @@ UP          0 1 0
 OBJECT 0
 sphere
 material 7
-TRANS       0 40 0
+TRANS       0 40 10
 ROTAT       0 0 0
-SCALE        50 30 50
+SCALE        50 10 50
 
 // Floor
 OBJECT 1
