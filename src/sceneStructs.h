@@ -5,6 +5,9 @@
 #include <cuda_runtime.h>
 #include "glm/glm.hpp"
 
+#define GBUFFER_ZDEPTH 1
+#define GBUFFER_OCTNORMAL 1
+
 #define BACKGROUND_COLOR (glm::vec3(0.0f))
 
 enum GeomType {
@@ -119,7 +122,14 @@ struct ShadeableIntersection
 
 struct GBufferPixel
 {
-    float t;
+#if GBUFFER_ZDEPTH
+    float depth;
+#else
     glm::vec3 pos;
+#endif
+#if GBUFFER_OCTNORMAL
+    glm::vec2 octNormal;
+#else
     glm::vec3 normal;
+#endif
 };
