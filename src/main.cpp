@@ -45,6 +45,30 @@ int iteration;
 int width;
 int height;
 
+void FilterCreation(int filter_size, float *kernel)
+{
+    // initialising standard deviation to 1.0
+    double sigma = 1.0;
+    double r, s = 2.0 * sigma * sigma;
+    // sum is for normalization
+    double sum = 0.0;
+    int itr = 0;
+    // generating filter_sizexfilter_size kernel
+    for (int x = -filter_size/2; x <= filter_size/2; x++) {
+        for (int y = -filter_size/2; y <= filter_size/2; y++) {
+            r = sqrt(x * x + y * y);
+            kernel[itr] = (exp(-(r * r) / s)) / (PI * s);
+            sum += kernel[itr];
+            itr++;
+        }
+    }
+
+    // normalising the Kernel
+    for (int i = 0; i < filter_size * filter_size; ++i)
+    {
+        kernel[i] /= sum;
+    }
+}
 
 //-------------------------------
 //-------------MAIN--------------
@@ -57,7 +81,6 @@ int main(int argc, char** argv) {
         printf("Usage: %s SCENEFILE.txt\n", argv[0]);
         return 1;
     }
-
     const char *sceneFile = argv[1];
 
     // Load scene file
@@ -151,8 +174,12 @@ void runCuda() {
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
 
     if (iteration == 0) {
+        int filter_size = glm::sqrt(ui_filterSize);
+        filter_size = filter_size % 2 == 0 ? filter_size + 1 : filter_size;
+        float *gKernel = new float[filter_size * filter_size];
+        FilterCreation(filter_size, gKernel);
         pathtraceFree();
-        pathtraceInit(scene);
+        pathtraceInit(scene, ui_colorWeight, ui_normalWeight, ui_positionWeight, gKernel, filter_size);
     }
 
     uchar4 *pbo_dptr = NULL;

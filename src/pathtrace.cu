@@ -39,14 +39,14 @@ void checkCUDAErrorFn(const char* msg, const char* file, int line) {
 }
 
 
-float gaussianKernel[25] = { 0.003765, 0.015019, 0.023792, 0.015019, 0.003765,
-0.015019, 0.059912, 0.094907, 0.059912, 0.015019,
-0.023792, 0.094907, 0.150342, 0.094907, 0.023792,
-0.015019, 0.059912, 0.094907, 0.059912, 0.015019,
-0.003765, 0.015019, 0.023792, 0.015019, 0.003765, };
+//float gaussianKernel[25] = { 0.003765, 0.015019, 0.023792, 0.015019, 0.003765,
+//0.015019, 0.059912, 0.094907, 0.059912, 0.015019,
+//0.023792, 0.094907, 0.150342, 0.094907, 0.023792,
+//0.015019, 0.059912, 0.094907, 0.059912, 0.015019,
+//0.003765, 0.015019, 0.023792, 0.015019, 0.003765, };
 
 
-glm::vec2 offsetKernel[25];
+//glm::vec2 offsetKernel[25];
 
 __host__ __device__
 thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int depth) {
@@ -167,22 +167,28 @@ static GBufferPixel* dev_gBuffer = NULL;
 static float* dev_gausKernel = NULL;
 static glm::vec2* dev_offsetKernel = NULL;
 static glm::vec3* dev_TrousImage = NULL;
+
+static float *dev_ui_colorWeight;
+static float *dev_ui_normalWeight ;
+static float *dev_ui_positionWeight;
+static float *dev_ui_filterSize;
 //static glm::vec3* dev_IntermediaryImage = NULL;
 
-void generateOffsetKern()
+void generateOffsetKern(int filterSize, vector<glm::vec2> &offsetKernel)
 {
 	int index = 0;
-	for (int y = -2; y <= 2; y++)
+	filterSize = filterSize % 2 == 0 ? filterSize - 1 : filterSize;
+	for (int y = -filterSize/2; y <= filterSize/2; y++)
 	{
-		for (int x = -2; x <= 2; x++)
+		for (int x = -filterSize/2; x <= filterSize/2; x++)
 		{
-			offsetKernel[index] = glm::vec2(x, y);
+			offsetKernel.push_back(glm::vec2(x, y));
 			index++;
 		}
 	}
 }
 
-void pathtraceInit(Scene* scene) {
+void pathtraceInit(Scene* scene, float ui_colorWeight, float ui_normalWeight, float ui_positionWeight, float *gausKernel, float filterSize) {
 	hst_scene = scene;
 	const Camera& cam = hst_scene->state.camera;
 	const int pixelcount = cam.resolution.x * cam.resolution.y;
@@ -205,14 +211,39 @@ void pathtraceInit(Scene* scene) {
 
 	// TODO: initialize any extra device memeory you need
 
-	cudaMalloc(&dev_gausKernel, 25 * sizeof(float));
-	cudaMemcpy(dev_gausKernel, gaussianKernel, 25 * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMalloc(&dev_gausKernel, filterSize * filterSize * sizeof(float));
+	cudaMemcpy(dev_gausKernel, gausKernel, filterSize * filterSize * sizeof(float), cudaMemcpyHostToDevice);
 
-	generateOffsetKern();
-	cudaMalloc(&dev_offsetKernel, 25 * sizeof(glm::vec2));
-	cudaMemcpy(dev_offsetKernel, offsetKernel, 25 * sizeof(glm::vec2), cudaMemcpyHostToDevice);
+	for (int i = 0; i < filterSize * filterSize; i++)
+	{
+		std::cout << gausKernel[i];
+	}
+
+	vector< glm::vec2> offKern;
+
+	generateOffsetKern(filterSize, offKern);
+	cudaMalloc(&dev_offsetKernel, filterSize * filterSize * sizeof(glm::vec2));
+	cudaMemcpy(dev_offsetKernel, offKern.data(), filterSize * filterSize * sizeof(glm::vec2), cudaMemcpyHostToDevice);
 
 	cudaMalloc(&dev_TrousImage, pixelcount * sizeof(glm::vec3));
+
+	cudaMalloc(&dev_ui_colorWeight, sizeof(float));
+	cudaMalloc(&dev_ui_normalWeight, sizeof(float));
+	cudaMalloc(&dev_ui_positionWeight, sizeof(float));
+	cudaMalloc(&dev_ui_filterSize, sizeof(float));
+
+
+
+	//cudaMemset(dev_ui_colorWeight, ui_colorWeight, sizeof(float));
+	//cudaMemset(dev_ui_normalWeight, ui_normalWeight, sizeof(float));
+	//cudaMemset(dev_ui_positionWeight, ui_positionWeight, sizeof(float));
+
+	cudaMemcpy(dev_ui_colorWeight, &ui_colorWeight, sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_ui_normalWeight, &ui_normalWeight, sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_ui_positionWeight, &ui_normalWeight, sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_ui_filterSize, &filterSize, sizeof(float), cudaMemcpyHostToDevice);
+
+
 	/*cudaMalloc(&dev_IntermediaryImage, pixelcount * sizeof(glm::vec3));*/
 
 	checkCUDAError("pathtraceInit");
@@ -230,7 +261,11 @@ void pathtraceFree() {
 	cudaFree(dev_gausKernel);
 	cudaFree(dev_offsetKernel);
 	cudaFree(dev_TrousImage);
-	/*cudaFree(dev_IntermediaryImage);*/
+
+	cudaFree(dev_ui_colorWeight);
+	cudaFree(dev_ui_normalWeight);
+	cudaFree(dev_ui_positionWeight);
+	cudaFree(dev_ui_filterSize);
 	checkCUDAError("pathtraceFree");
 }
 
@@ -320,37 +355,89 @@ __global__ void CopyDataToInterImage(
 
 	}
 
-	//__global__ void GenerateGaussianBlur(
-	//	int num_paths,
-	//	float* dev_gausKernel, glm::vec2* dev_offsetKernel,
-	//	glm::vec3* dev_colorImage, glm::vec3* dev_TrousImage,
-	//	GBufferPixel* gbuf, const Camera cam
-	//)
-	//{
+	__global__ void GenerateAtrousImage(
+		int num_paths, int filterSize,
+		float* dev_gausKernel, glm::vec2* dev_offsetKernel,
+		glm::vec3* dev_colorImage, glm::vec3* dev_TrousImage,
+		GBufferPixel* gbuf, const Camera cam, float* dev_ui_colorWeight,
+		float* dev_ui_normalWeight,float* dev_ui_positionWeight
+	)
+	{
 
-	//	int index = blockIdx.x * blockDim.x + threadIdx.x;
+		int index = blockIdx.x * blockDim.x + threadIdx.x;
 
-	//	if (index < num_paths)
-	//	{
-	//		glm::vec3 currColor = glm::vec3(0.0f);
-	//		//glm::vec3 currColor = dev_colorImage[index];
-	//		for (int i = 0; i < 25; i++)
-	//		{
+		if (index < num_paths)
+		{
+			glm::vec3 sum = glm::vec3(0.0f);
+			glm::vec3 cval = dev_colorImage[index];
+			glm::vec3 nval = gbuf[index].normal;
+			glm::vec3 pval = gbuf[index].position;
 
-	//			float offsetX = dev_offsetKernel[i].x;
-	//			float offsetY = dev_offsetKernel[i].y;
-	//			float gausValue = dev_gausKernel[i];
-	//			int offsetColorIdx = index + (offsetY * cam.resolution.x + offsetX);
-	//			if (offsetColorIdx >= 0 && offsetColorIdx < num_paths)
-	//			{
-	//				glm::vec3 newColor = dev_colorImage[offsetColorIdx];
-	//				currColor += newColor * dev_gausKernel[i];
-	//			}
-	//		}
-	//		dev_TrousImage[index] = currColor;
-	//	}
+			float cphi = dev_ui_colorWeight[0] * dev_ui_colorWeight[0];
+			float nphi = dev_ui_normalWeight[0] * dev_ui_normalWeight[0];
+			float pphi = dev_ui_positionWeight[0] * dev_ui_positionWeight[0];
 
-	//}
+			float cum_w = 0.0f;
+			for (int stepIter = 0; stepIter < 1; stepIter++)
+			{
+				for (int i = 0; i < 25; i++)
+				{
+					int stepWidth = 1 << stepIter;
+					// Calculate Offseted Index
+					int index2D_y = index / cam.resolution.x;
+					int index2D_x = (int)(index % cam.resolution.x);
+
+					int offsetX = dev_offsetKernel[i].x;
+					int offsetY = dev_offsetKernel[i].y;
+
+					int finalValue_X = index2D_x + offsetX * stepWidth; // Final Offset Values
+					int finalValue_Y = index2D_y + offsetY * stepWidth; // Final Offset Values
+
+					if (finalValue_X >= 0 && finalValue_X <= (cam.resolution.x - 1) && finalValue_Y >= 0 && finalValue_Y <= (cam.resolution.y - 1))
+					{
+						int offsetColorIdx = finalValue_Y * cam.resolution.x + finalValue_X;
+						if (offsetColorIdx >= 0 && offsetColorIdx < num_paths)
+						{
+							glm::vec3 ctmp = dev_colorImage[offsetColorIdx];
+							glm::vec3 t = cval - ctmp;
+							float dist2 = glm::dot(t, t);
+							if (dist2 != 0.0f)
+							{
+								dist2 = dist2;
+							}
+							float newVal = glm::exp(-1 * (dist2) / cphi);
+							float c_w = glm::min(newVal, 1.0f);
+
+							glm::vec3 ntmp = gbuf[offsetColorIdx].normal;
+							t = nval - ntmp;
+							dist2 = glm::max(glm::dot(t, t)/ (stepWidth * stepWidth), 0.0f);
+							newVal = glm::exp(-1 * (dist2) / nphi );
+							float n_w = glm::min(newVal, 1.0f);
+
+							glm::vec3 ptmp = gbuf[offsetColorIdx].position;
+							t = pval - ptmp;
+							dist2 = glm::dot(t, t);
+							newVal = glm::exp(-1 * (dist2) / pphi);
+							float p_w = glm::min(newVal, 1.0f);
+							float weight = c_w * n_w * p_w;
+
+
+							if (weight < 0.9f && weight >0.1f)
+							{
+								c_w = c_w;
+							}
+
+							sum += ctmp * weight * dev_gausKernel[i];
+							cum_w += weight * dev_gausKernel[i];
+
+						}
+					}
+				}
+			}
+				dev_TrousImage[index] = sum / cum_w;
+		}
+
+	}
 
 
 	__global__ void computeIntersections(
@@ -578,12 +665,6 @@ __global__ void CopyDataToInterImage(
 			if (depth == 0) {
 				generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer);
 			}
-		/*	if (depth == traceDepth) {
-				CopyDataToInterImage << <numblocksPathSegmentTracing, blockSize1d >> > (iter, num_paths, dev_paths, dev_IntermediaryImage);
-
-				GenerateATrousImage << <numblocksPathSegmentTracing, blockSize1d >> > (depth, num_paths, dev_gausKernel, dev_offsetKernel,
-					dev_IntermediaryImage, dev_TrousImage, dev_gBuffer, cam);
-			}*/
 
 			depth++;
 			shadeSimpleMaterials << <numblocksPathSegmentTracing, blockSize1d >> > (
@@ -598,11 +679,11 @@ __global__ void CopyDataToInterImage(
 		// Assemble this iteration and apply it to the image
 		dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
 		finalGather << <numBlocksPixels, blockSize1d >> > (num_paths, dev_image, dev_paths);
-		GenerateGaussianBlur << <numBlocksPixels, blockSize1d >> > (num_paths, dev_gausKernel, dev_offsetKernel,
-			dev_image, dev_TrousImage, cam);
+		//GenerateGaussianBlur << <numBlocksPixels, blockSize1d >> > (num_paths, dev_gausKernel, dev_offsetKernel,
+		//	dev_image, dev_TrousImage, cam);
 
-		//GenerateATrousImage << <numBlocksPixels, blockSize1d >> > (depth, num_paths, dev_gausKernel, dev_offsetKernel,
-		//	dev_image, dev_TrousImage, dev_gBuffer, cam);
+		GenerateAtrousImage << <numBlocksPixels, blockSize1d >> > (num_paths, dev_ui_filterSize[0],dev_gausKernel, dev_offsetKernel,
+			dev_image, dev_TrousImage, dev_gBuffer, cam, dev_ui_colorWeight, dev_ui_normalWeight, dev_ui_positionWeight);
 		///////////////////////////////////////////////////////////////////////////
 
 		// CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
