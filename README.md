@@ -79,3 +79,15 @@ For similar reasons, when the lighting condition isn't very even, the image resu
 To more efficiently store G-buffer information, we use z-depths and oct-encoded normals instead of positions and normals. There seems to be no apparent performance impact for this optimization. The difference seen in the graph is more of a result of performance time variance rather than any meaningful performance difference.
 
 ![](img/chart-gbuffer.png)
+
+## Edge-Avoiding A-Trous Wavelet Transform vs Gaussian Blur
+
+Compared to our implementation, Gaussian blur doesn't get rid of noise so much as to smooth out the noise, with the additional downside of blurring the entire image.
+
+| filter size: 65, A-Trous | filter size: 65, Gaussian | reference |
+| --------------------------- | ----------------------- | -- |
+| ![](img/denoised.png)     | ![](img/gaussian.png)   | ![](img/no-denoise.png) |
+
+Performance wise, Gaussian blur is also getting expensive as the filter size increases.
+
+![](img/chart-gaussian.png)

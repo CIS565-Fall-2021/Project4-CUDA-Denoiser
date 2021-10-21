@@ -22,7 +22,14 @@
 #define SORT_BY_MATERIAL 1
 #define CACHE_FIRST_BOUNCE 1
 #define PERFORMANCE_ANALYSIS 1
+
 #define GBUFFER_DISPLAY_MODE POS
+#define POS 1
+#define NORMAL 2
+
+#define DENOISE_MODE ATROUS
+#define ATROUS 1
+#define GAUSSIAN 2
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -141,7 +148,7 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
         pbo[idx].x = pos.x;
         pbo[idx].y = pos.y;
         pbo[idx].z = pos.z;
-#elif GBUFFER_DISPLAY_MODE == NORMAL
+#elif GBUFFER_DISPLAY_MODE == 2
         normal = glm::abs(normal * 255.f);
         pbo[idx].w = 0;
         pbo[idx].x = normal.x;
@@ -615,6 +622,28 @@ void showImage(uchar4* pbo, int iter)
     sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_image);
 }
 
+__global__ void gaussianFilter(glm::ivec2 resolution,
+                               const float* kernel, int filterSize,
+                               const glm::vec3* img, 
+                               glm::vec3* tempImage)
+{
+    int x = blockDim.x * blockIdx.x + threadIdx.x;
+    int y = blockDim.y * blockIdx.y + threadIdx.y;
+    if (x >= resolution.x || y >= resolution.y) return;
+
+    glm::vec3 col(0.f);
+    for (int j = 0; j < filterSize; ++j)
+    {
+        for (int i = 0; i < filterSize; ++i)
+        {
+            int tx = glm::clamp(x + i - filterSize / 2, 0, resolution.x - 1);
+            int ty = glm::clamp(y + j - filterSize / 2, 0, resolution.y - 1);
+            col += kernel[j * filterSize + i] * img[ty * resolution.x + tx];
+        }
+    }
+    tempImage[y * resolution.x + x] = col;
+}
+
 __global__ void aTrousFilter(Camera cam, int stepWidth, 
                              float cphi, float nphi, float pphi,
                              const glm::vec3* img, const GBufferPixel* gbuf, 
@@ -629,9 +658,9 @@ __global__ void aTrousFilter(Camera cam, int stepWidth,
 
     glm::vec3 sum(0.f);
     float cumw = 0.f;
-    for (int i = 0; i < 5; ++i)
+    for (int j = 0; j < 5; ++j)
     {
-        for (int j = 0; j < 5; ++j)
+        for (int i = 0; i < 5; ++i)
         {
             int tx = glm::clamp(x + (i - 2) * stepWidth, 0, cam.resolution.x - 1);
             int ty = glm::clamp(y + (j - 2) * stepWidth, 0, cam.resolution.y - 1);
@@ -670,10 +699,38 @@ void denoise()
     const dim3 blocksPerGrid2d((resolution.x + blockSize2d.x - 1) / blockSize2d.x,
                                (resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
+#if DENOISE_MODE == GAUSSIAN
+    constexpr float sigma = 1.f;
+    int radius = ui_filterSize / 2;
+    int filterSize = radius * 2 + 1;
+    vector<float> kernel(filterSize * filterSize, 0.f);
+    float sum = 0.f;
+    for (int i = 0; i < filterSize; ++i)
+    {
+        for (int j = 0; j < filterSize; ++j)
+        {
+            kernel[i * filterSize + j] = exp(-0.5 * (pow((i - radius) / sigma, 2.0) + pow((j - radius) / sigma, 2.0))) / (2 * PI * sigma * sigma);
+            sum += kernel[i * filterSize + j];
+        }
+    }
+    for (int i = 0; i < filterSize * filterSize; ++i)
+    {
+        kernel[i] /= sum;
+    }
+    float* d_kernel;
+    cudaMalloc(&d_kernel, filterSize * filterSize * sizeof(float));
+    cudaMemcpy(d_kernel, kernel.data(), filterSize * filterSize * sizeof(float), cudaMemcpyHostToDevice);
+#endif
+
 #if PERFORMANCE_ANALYSIS
     timer().startCpuTimer();
 #endif
 
+#if DENOISE_MODE == GAUSSIAN
+    gaussianFilter<<<blocksPerGrid2d, blockSize2d>>>(resolution, d_kernel, filterSize, 
+                                                     dev_image, dev_tempImage);
+    std::swap(dev_image, dev_tempImage);
+#elif DENOISE_MODE == ATROUS
     for (int stepWidth = 1; stepWidth * 4 + 1 <= ui_filterSize; stepWidth *= 2)
     {
         aTrousFilter<<<blocksPerGrid2d, blockSize2d>>>(hst_scene->state.camera, stepWidth,
@@ -681,11 +738,16 @@ void denoise()
                                                        dev_image, dev_gBuffer, dev_tempImage);
         std::swap(dev_image, dev_tempImage);
     }
+#endif
 
     cudaMemcpy(hst_scene->state.image.data(), dev_image, resolution.x * resolution.y * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
 
 #if PERFORMANCE_ANALYSIS
     timer().endCpuTimer();
     cout << "Denoise time: " << timer().getCpuElapsedTimeForPreviousOperation() << "ms" << endl;
+#endif
+
+#if DENOISE_MODE == GAUSSIAN
+    cudaFree(d_kernel);
 #endif
 }
