@@ -317,14 +317,13 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 		if (x < cam.resolution.x && y < cam.resolution.y)
 		{
 			int index = x + (y * cam.resolution.x);
+			glm::vec3 color = dev_colorImage[index];
 			glm::vec3 currColor = glm::vec3(0.0f);
 			//glm::vec3 currColor = dev_colorImage[index];
-			for (int i = 0; i < filterSize; i++)
+			for (int i = 0; i < filterSize * filterSize; i++)
 			{
-
 				int offsetX = dev_offsetKernel[i].x;
 				int offsetY = dev_offsetKernel[i].y;
-
 				int finalValue_X = x + offsetX;
 				int finalValue_Y = y + offsetY;
 
@@ -367,9 +366,9 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 			float pphi = ui_positionWeight * ui_positionWeight;
 
 			float cum_w = 0.0f;
-			for (int stepIter = 0; stepIter < 10; stepIter++)
+			for (int stepIter = 0; stepIter < 1; stepIter++)
 			{
-				for (int i = 0; i < filterSize; i++)
+				for (int i = 0; i < filterSize * filterSize; i++)
 				{
 					int stepWidth = 1 << stepIter;
 					// Calculate Offseted Index
@@ -453,9 +452,9 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 			float pphi = ui_positionWeight * ui_positionWeight;
 
 			float cum_w = 0.0f;
-			for (int stepIter = 0; stepIter < 10; stepIter++)
+			for (int stepIter = 0; stepIter < 1; stepIter++)
 			{
-				for (int i = 0; i < 25; i++)
+				for (int i = 0; i < filterSize *filterSize; i++)
 				{
 					int stepWidth = 1 << stepIter;
 					// Calculate Offseted Index
@@ -472,12 +471,12 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 							glm::vec3 ctmp = dev_colorImage[offsetColorIdx];
 							glm::vec3 t = cval - ctmp;
 							float dist2 = glm::dot(t, t);
-							float newVal = glm::exp(-1 * (dist2) / cphi);
-							float c_w = glm::min(newVal, 1.0f);
+							float newVal = glm::exp(-(dist2) / cphi);
+							float c_w = glm::min(newVal, 1.f);
 
 							glm::vec3 ntmp = gbuf[offsetColorIdx].normal;
 							t = nval - ntmp;
-							dist2 = glm::max(glm::dot(t, t) / (stepWidth * stepWidth), 0.0f);
+							dist2 = glm::max(glm::dot(t, t) / (stepWidth * stepWidth), 0.f);
 							newVal = glm::exp(-1 * (dist2) / nphi);
 							float n_w = glm::min(newVal, 1.0f);
 
@@ -485,7 +484,7 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 							t = pval - ptmp;
 							dist2 = glm::dot(t, t);
 							newVal = glm::exp(-1 * (dist2) / pphi);
-							float p_w = glm::min(newVal, 1.0f);
+							float p_w = glm::min(newVal, 1.f);
 							float weight = c_w * n_w * p_w;
 							sum += ctmp * weight * dev_gausKernel[i];
 							cum_w += weight * dev_gausKernel[i];
@@ -495,6 +494,7 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 				}
 			}
 			dev_TrousImage[index] = sum / cum_w;
+			//dev_TrousImage[index] = cval;
 		}
 
 	}
@@ -738,10 +738,12 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 		// Assemble this iteration and apply it to the image
 		dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
 		finalGather << <numBlocksPixels, blockSize1d >> > (num_paths, dev_image, dev_paths);
-		GenerateGaussianBlur2 << <blocksPerGrid2d, blockSize2d >> > (num_paths, ui_filterSize,dev_gausKernel, dev_offsetKernel,
-			dev_image, dev_TrousImage, cam);
-//		GenerateAtrousImage << <numBlocksPixels, blockSize1d >> > (num_paths, ui_filterSize ,dev_gausKernel, dev_offsetKernel,
-//			dev_image, dev_TrousImage, dev_gBuffer, cam, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+//		GenerateGaussianBlur2 << <blocksPerGrid2d, blockSize2d >> > (num_paths, ui_filterSize,dev_gausKernel, dev_offsetKernel,
+//			dev_image, dev_TrousImage, cam);
+		//GenerateAtrousImage << <numBlocksPixels, blockSize1d >> > (num_paths, ui_filterSize ,dev_gausKernel, dev_offsetKernel,
+		//	dev_image, dev_TrousImage, dev_gBuffer, cam, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+		 		GenerateAtrousImage2 << <blocksPerGrid2d, blockSize2d >> > (num_paths, ui_filterSize ,dev_gausKernel, dev_offsetKernel,
+		dev_image, dev_TrousImage, dev_gBuffer, cam, ui_colorWeight, ui_normalWeight, ui_positionWeight);
 		///////////////////////////////////////////////////////////////////////////
 
 		// CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
