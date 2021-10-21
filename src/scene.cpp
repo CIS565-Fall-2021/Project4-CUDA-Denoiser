@@ -5,7 +5,7 @@
 #include <glm/gtx/string_cast.hpp>
 #include <random>
 
-#define LOAD_GEOM_AND_MAT_FROM_FILE 1
+#define LOAD_GEOM_AND_MAT_FROM_FILE 0
 
 Scene::Scene(string filename) {
     cout << "Reading scene from " << filename << " ..." << endl;
