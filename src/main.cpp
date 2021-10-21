@@ -23,7 +23,7 @@ int ui_iterations = 0;
 int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
-bool ui_denoise = true;
+bool ui_denoise = false;
 int ui_filterSize = 80;
 float ui_colorWeight = 0.45f;
 float ui_normalWeight = 0.35f;
@@ -120,6 +120,9 @@ void saveImage() {
     //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
+std::clock_t start;
+double duration;
+
 void runCuda() {
     if (lastLoopIterations != ui_iterations) {
       lastLoopIterations = ui_iterations;
@@ -152,6 +155,8 @@ void runCuda() {
     if (iteration == 0) {
         pathtraceFree();
         pathtraceInit(scene);
+        
+        start = std::clock();
     }
 
     uchar4 *pbo_dptr = NULL;
@@ -176,10 +181,23 @@ void runCuda() {
 
     if (iteration == ui_iterations && ui_denoise) {
         denoiseImage(ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+        duration = (std::clock() - start) / (double)CLOCKS_PER_SEC;
+
+        std::cout << "printf: " << duration << '\n';
+        pathtraceFree();
+        cudaDeviceReset();
+        exit(EXIT_SUCCESS);
+    }
+    else if (iteration == ui_iterations) {
+        duration = (std::clock() - start) / (double)CLOCKS_PER_SEC;
+
+        std::cout << "printf: " << duration << '\n';
+        pathtraceFree();
+        cudaDeviceReset();
+        exit(EXIT_SUCCESS);
     }
 
-    if (ui_saveAndExit) {
-        
+    if (ui_saveAndExit) {      
         saveImage();
         pathtraceFree();
         cudaDeviceReset();

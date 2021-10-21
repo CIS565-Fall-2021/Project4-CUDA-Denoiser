@@ -19,7 +19,7 @@
 #define SHOW_T 0
 #define SHOW_POS 1
 #define SHOW_NOR 2
-#define SHOW_GBUFFER_TYPE 2
+#define SHOW_GBUFFER_TYPE 1
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -111,7 +111,7 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
         }
         
         else if (SHOW_GBUFFER_TYPE == SHOW_POS) {
-            glm::vec3 position = glm::normalize(abs(gBuffer[index].pos)) * glm::vec3(256.f);
+            glm::vec3 position = glm::normalize(abs(gBuffer[index].pos)) * glm::vec3(255.f);
             pbo[index].w = 0;
             pbo[index].x = position.x;
             pbo[index].y = position.y;
@@ -119,7 +119,8 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
         }
 
         else {
-            glm::vec3 normal = abs(gBuffer[index].nor) * glm::vec3(256.f);
+            glm::vec3 normal = gBuffer[index].nor;
+            normal = abs(glm::vec3(normal.x * 255.f, normal.y * 255.f, normal.z * 255.f));
             pbo[index].w = 1;
             pbo[index].x = normal.x;
             pbo[index].y = normal.y;
@@ -350,6 +351,7 @@ __global__ void generateGBuffer (
 	PathSegment* pathSegments,
   GBufferPixel* gBuffer) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
   if (idx < num_paths)
   {
       ShadeableIntersection isect = shadeableIntersections[idx];
@@ -373,9 +375,9 @@ __global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterati
 }
 
 __device__ float w(GBufferPixel& p, GBufferPixel& q, glm::vec3 colP, glm::vec3 colQ, float colW, float norW, float posW) {
-    float w_rt = /*min(exp(-dot(colP, colQ) / colW * colW), 1.0)*/ 1.0;
-    float w_n = exp(-glm::length(p.nor - q.nor) / norW * norW);
-    float w_x = exp(-glm::length(p.pos - q.pos) / posW * posW);
+    float w_rt = min(exp(-dot(colP-colQ, colP-colQ) / colW), 1.0);
+    float w_n = exp(-dot(p.nor - q.nor, p.nor - q.nor) / norW);
+    float w_x = exp(-dot(p.pos - q.pos, p.pos - q.pos) / posW);
     return w_rt * w_n * w_x;
 }
 
@@ -407,13 +409,8 @@ __global__ void applyATrousFilter(int nPaths, glm::vec3* dst, glm::vec3* prev_it
 
             }
         }
-        //if (lastIter) {
-        //    dst[index] += cur_color /*/ k*/;
-        //}
-        //else {
-            dst[index] += (cur_color / k) - prev_iter[index];
-            prev_iter[index] = cur_color / k;
-        //}
+        dst[index] += (cur_color / k) - prev_iter[index];
+        prev_iter[index] = cur_color / k;
     }
 }
 
@@ -441,9 +438,6 @@ void denoiseImage(float filterSize, float colW, float norW, float posW) {
                 dev_gaussian_kernel, offset, dev_gBuffer, colW, norW, posW, false);
         }
     }
-    /*offset = pow(2, iterations);
-    applyATrousFilter << <numBlocksPixels, blockSize1d >> > (pixelcount, dev_denoised, dev_denoised_tmp, dev_paths, cam.resolution.x,
-        dev_gaussian_kernel, offset, dev_gBuffer, colW, norW, posW, true);*/
 }
 
 
