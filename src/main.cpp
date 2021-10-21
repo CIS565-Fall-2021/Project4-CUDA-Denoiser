@@ -53,10 +53,12 @@ void FilterCreation(int filter_size, float *kernel)
     // sum is for normalization
     double sum = 0.0;
     int itr = 0;
+
+    int center = filter_size / 2.0f;
     // generating filter_sizexfilter_size kernel
     for (int x = -filter_size/2; x <= filter_size/2; x++) {
         for (int y = -filter_size/2; y <= filter_size/2; y++) {
-            r = sqrt(x * x + y * y);
+            r = sqrt( x * x + y * y );
             kernel[itr] = (exp(-(r * r) / s)) / (PI * s);
             sum += kernel[itr];
             itr++;
