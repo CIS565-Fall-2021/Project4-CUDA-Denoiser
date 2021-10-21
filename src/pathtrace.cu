@@ -719,6 +719,8 @@ void denoise(int fs, float c_phi, float n_phi, float p_phi, uchar4 *pbo, int ite
         (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
         (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
+    timer().startGpuTimer();
+
     cudaMemcpy(dev_color, dev_image, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
     for (int i = 0; i < fs; i++)
     {
@@ -731,6 +733,9 @@ void denoise(int fs, float c_phi, float n_phi, float p_phi, uchar4 *pbo, int ite
         dev_color = dev_color2;
         dev_color2 = dev_color;
     }
+    timer().endGpuTimer();
+    float time = timer().getGpuElapsedTimeForPreviousOperation();
+    std::cout << time << "ms" << std::endl;
 
     sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_color);
 }
