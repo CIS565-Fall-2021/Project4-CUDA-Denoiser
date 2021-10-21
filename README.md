@@ -6,11 +6,15 @@ CUDA Denoiser For CUDA Path Tracer
 * (Charles) Zixin Zhang
 * Tested on: Windows 11, 11th Core i7, 3060 Laptop GPU
 
-# Result
+# Results
 
 Figure 1: Zoomed-in "So many balls" Scene: 
 
+Denoised: 
+
 ![](Denoised.png)
+
+Noised: 
 
 ![](Noised.png)
 
@@ -18,7 +22,11 @@ Figure 1: Zoomed-in "So many balls" Scene:
 
 Figure 2: "So many balls" Scene:
 
+Denoised: 
+
 ![](Denoised2.png)
+
+Noised: 
 
 ![](Noised2.png)
 
