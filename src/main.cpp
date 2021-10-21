@@ -24,7 +24,7 @@ int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
 bool ui_denoise = false;
-int ui_filterSize = 80;
+int ui_filterSize = 65;
 float ui_colorWeight = 0.45f;
 float ui_normalWeight = 0.35f;
 float ui_positionWeight = 0.2f;
@@ -43,13 +43,16 @@ RenderState *renderState;
 int iteration;
 
 double time_elapse;
-double kernel_fps;
+double pathtrace_time;
+double elapse_denoise;
+int count_denoise;
+double denoise_time;
 
 int width;
 int height;
 
 // CUDA events for recording time stamp
-#if KERNEL_FPS
+#if RUN_TIME
 cudaEvent_t kernel_start, kernel_stop;
 #endif
 
@@ -99,11 +102,14 @@ int main(int argc, char **argv) {
     // Initialize CUDA and GL components
     init();
 
-#if KERNEL_FPS    
+#if RUN_TIME    
     cudaEventCreate(&kernel_start);
     cudaEventCreate(&kernel_stop);
     time_elapse = 0;
-    kernel_fps = 0;
+    pathtrace_time = 0;
+    elapse_denoise = 0;
+    count_denoise = 0;
+    denoise_time = 0;
 #endif
 
     // GLFW main loop
@@ -143,6 +149,9 @@ void runCuda() {
 
     if (camchanged) {
         iteration = 0;
+        time_elapse = 0;
+        elapse_denoise = 0;
+        count_denoise = 0;
         Camera &cam = renderState->camera;
         cameraPosition.x = zoom * sin(phi) * sin(theta);
         cameraPosition.y = zoom * cos(theta);
@@ -175,32 +184,55 @@ void runCuda() {
     if (iteration < ui_iterations) {
         iteration++;
 
-#if KERNEL_FPS
+#if RUN_TIME
         cudaEventRecord(kernel_start);
 #endif
 
-        // execute the kernel
+        // Execute the kernel
         int frame = 0;
         pathtrace(frame, iteration);
 
-#if KERNEL_FPS
+#if RUN_TIME
         cudaEventRecord(kernel_stop);
         cudaEventSynchronize(kernel_stop);
 
         float milliseconds = 0;
         cudaEventElapsedTime(&milliseconds, kernel_start, kernel_stop);
-        time_elapse += milliseconds / 1000;
+        time_elapse += milliseconds;
 
-        // display average FPS
-        kernel_fps = iteration / time_elapse;
-#endif 
+        // Display average time
+        pathtrace_time = time_elapse / iteration;
+#endif
     }
 
     if (ui_denoise) {
         // Determine number of iterations by desired filter size
-        int num_iter = int(log2((ui_filterSize - 5) / 4.f)) + 1;
+        int num_iter = int(log2((ui_filterSize - 5) / 4.f + 1.f)) + 1;
+
+#if RUN_TIME
+        cudaEventRecord(kernel_start);
+#endif
 
         run_denoiser(ui_colorWeight, ui_normalWeight, ui_positionWeight, num_iter);
+
+#if RUN_TIME
+        cudaEventRecord(kernel_stop);
+        cudaEventSynchronize(kernel_stop);
+
+        count_denoise++;
+
+        float milliseconds = 0;
+        cudaEventElapsedTime(&milliseconds, kernel_start, kernel_stop);
+        elapse_denoise += milliseconds;
+
+        // Display average time
+        if (count_denoise == 100) {
+            denoise_time = elapse_denoise / count_denoise;
+            elapse_denoise = 0;
+            count_denoise = 0;
+        }   
+#endif
+
         show_denoised_image(pbo_dptr, iteration);
     }
     else if (ui_showGbuffer) {

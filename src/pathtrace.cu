@@ -93,20 +93,20 @@ __global__ void gbufferToPBO(uchar4 *pbo, glm::ivec2 resolution, GBufferPixel *g
         int index = x + (y * resolution.x);
 
         // Visualization for per-pixel normals
-        //glm::vec3 norm_color = gBuffer[index].norm / 2.f + 0.5f;
-
-        //pbo[index].w = 0;
-        //pbo[index].x = glm::clamp((int)(norm_color.x * 255.0), 0, 255);
-        //pbo[index].y = glm::clamp((int)(norm_color.y * 255.0), 0, 255);
-        //pbo[index].z = glm::clamp((int)(norm_color.z * 255.0), 0, 255);
-
-        // Visualization for per-pixel positions
-        glm::vec3 pos_color = gBuffer[index].pos / 10.f;
+        glm::vec3 norm_color = gBuffer[index].norm / 2.f + 0.5f;
 
         pbo[index].w = 0;
-        pbo[index].x = glm::clamp((int)(pos_color.x * 255.0), 0, 255);
-        pbo[index].y = glm::clamp((int)(pos_color.y * 255.0), 0, 255);
-        pbo[index].z = glm::clamp((int)(pos_color.z * 255.0), 0, 255);
+        pbo[index].x = glm::clamp((int)(norm_color.x * 255.0), 0, 255);
+        pbo[index].y = glm::clamp((int)(norm_color.y * 255.0), 0, 255);
+        pbo[index].z = glm::clamp((int)(norm_color.z * 255.0), 0, 255);
+
+        // Visualization for per-pixel positions
+        //glm::vec3 pos_color = gBuffer[index].pos / 10.f;
+
+        //pbo[index].w = 0;
+        //pbo[index].x = glm::clamp((int)(pos_color.x * 255.0), 0, 255);
+        //pbo[index].y = glm::clamp((int)(pos_color.y * 255.0), 0, 255);
+        //pbo[index].z = glm::clamp((int)(pos_color.z * 255.0), 0, 255);
     }
 }
 
@@ -933,6 +933,7 @@ __global__ void kern_A_Trous_filter(
         glm::vec3 p_val = gBuffer[x + (y * resolution.x)].pos;
 
         // A_Trous kernel
+        // Trick of passing only 3 different values, actually 5x5
         float filter[3] = { 3.f / 8.f, 1.f / 4.f, 1.f / 16.f };
 
         float cum_w = 0.f;
@@ -940,7 +941,7 @@ __global__ void kern_A_Trous_filter(
         for (int v = -2; v <= 2; v++) {
             for (int u = -2; u <= 2; u++) {
                 // Coordinates of neighbor, changing for different iterations
-                glm::ivec2 uv = glm::clamp(glm::ivec2(x + u * step_width, y + v * step_width), glm::ivec2(0, 0), resolution);
+                glm::ivec2 uv = glm::clamp(glm::ivec2(x + u * step_width, y + v * step_width), glm::ivec2(0, 0), resolution - 1);
 
                 // Color of neighbor
                 glm::vec3 c_tmp = in_img[uv.x + (uv.y * resolution.x)];
@@ -1039,7 +1040,3 @@ void show_denoised_image(uchar4 *pbo, int iter) {
     // Send results to OpenGL buffer for rendering
     sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_denoised_image);
 }
-
-//glm::vec3 compute_variance() {
-//
-//}

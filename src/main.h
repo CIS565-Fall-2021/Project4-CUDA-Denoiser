@@ -27,8 +27,9 @@ using namespace std;
 //-------------------------------
 
 // Toggle for measuring performance
-#define KERNEL_FPS 0
-extern double kernel_fps;
+#define RUN_TIME 1
+extern double pathtrace_time;
+extern double denoise_time;
 
 extern Scene* scene;
 extern int iteration;

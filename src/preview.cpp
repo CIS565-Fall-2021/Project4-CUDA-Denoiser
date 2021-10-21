@@ -215,7 +215,7 @@ void drawGui(int windowWidth, int windowHeight) {
     ImGui::Checkbox("Denoise", &ui_denoise);
 
     ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 100);
-    ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 10.0f);
+    ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 30.0f);
     ImGui::SliderFloat("Normal Weight", &ui_normalWeight, 0.0f, 10.0f);
     ImGui::SliderFloat("Position Weight", &ui_positionWeight, 0.0f, 10.0f);
 
@@ -240,13 +240,16 @@ void mainLoop() {
         glfwPollEvents();
         runCuda();
 
-#if KERNEL_FPS
+#if RUN_TIME
         std::ostringstream ss;
-        ss << "[";
+        ss << " | Path tracer [";
         ss.precision(2);
-        ss << std::fixed << kernel_fps;
-        ss << " spp/s] ";
-        string title = "CIS565 Path Tracer | " + utilityCore::convertIntToString(iteration) + " Iterations" + " | FPS " + ss.str();
+        ss << std::fixed << pathtrace_time;
+        ss << " ms] ";
+        ss << " | Denoiser [";
+        ss << std::fixed << denoise_time;
+        ss << " ms] ";
+        string title = "CIS565 Path Tracer | " + utilityCore::convertIntToString(iteration) + " Iterations" + ss.str();
 #else
         string title = "CIS565 Path Tracer | " + utilityCore::convertIntToString(iteration) + " Iterations";
 #endif
