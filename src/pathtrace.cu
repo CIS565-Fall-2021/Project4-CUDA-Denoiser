@@ -303,7 +303,13 @@ __global__ void performOneStepATrousFilter(Camera cam,
     if (x < cam.resolution.x && y < cam.resolution.y) {
         int index = x + (y * cam.resolution.x);
 
-        float h[5] = { 1.f / 16.f, 1.f / 4.f, 3.f / 8.f, 1.f / 4.f, 1.f / 16.f }; 
+        float h[25] = {
+            1.f / 273.f, 4.f / 273.f,  7.f / 273.f,  4.f / 273.f,  1.f / 273.f,
+            4.f / 273.f, 16.f / 273.f, 26.f / 273.f, 16.f / 273.f, 4.f / 273.f,
+            7.f / 273.f, 26.f / 273.f, 41.f / 273.f, 26.f / 273.f, 7.f / 273.f,
+            4.f / 273.f, 16.f / 273.f, 26.f / 273.f, 16.f / 273.f, 4.f / 273.f,
+            1.f / 273.f, 4.f / 273.f,  7.f / 273.f,  4.f / 273.f,  1.f / 273.f,
+        };
 
         float cum_w = 0.f;
         glm::vec3 sum{ 0.f };
@@ -312,12 +318,12 @@ __global__ void performOneStepATrousFilter(Camera cam,
         glm::vec3 nval = gBuffer[index].normal;
         glm::vec3 pval = gBuffer[index].pos;
 
-        for (int i = 0; i < 5; i++)
+        for (int i = -2; i <= 2; i++)
         {
-            for (int j = 0; j < 5; j++)
+            for (int j = -2; j <= 2; j++)
             {
-                int u = x + currStepWidth * (i - 2);
-                int v = y + currStepWidth * (j - 2);
+                int u = x + currStepWidth * i;
+                int v = y + currStepWidth * j;
                 if (u < cam.resolution.x && v < cam.resolution.y && u >= 0 && v >= 0)
                 {
                     int currIndex = u + (v * cam.resolution.x);
@@ -339,8 +345,9 @@ __global__ void performOneStepATrousFilter(Camera cam,
                     float p_w = glm::min(glm::exp(-(dist2) / positionWeight), 1.f);
 
                     float weight = c_w * n_w * p_w;
-                    sum += ctmp * weight * h[i] * h[j];
-                    cum_w += weight * h[i] * h[j];
+                    int hIndex = i + 2 + (j + 2) * 5;
+                    sum += ctmp * weight * h[hIndex];
+                    cum_w += weight * h[hIndex];
                 }
             }
         }

@@ -82,17 +82,10 @@ In order to programmatically generate a lot of balls (121 balls in figure 1 and 
 
 Fuzziness is added to the material properties such as we can have [fuzzy reflection](https://raytracing.github.io/books/RayTracingInOneWeekend.html#metal/fuzzyreflection). 
 
-# Future Plan
-
-I want to continue to apply what I learn in [_Ray Tracing in One Weekend Series_](https://raytracing.github.io/books/RayTracingInOneWeekend.html) and make it work with the current CUDA framework. 
+Figure 1 and 2 is genreated by `scenes/manyBalls.txt`. 
 
 # References
 
 - [_Ray Tracing in One Weekend Series by Peter Shirley_](https://raytracing.github.io/books/RayTracingInOneWeekend.html)
 - [_Edge-Avoiding A-Trous Wavelet Transform for fast Global Illumination Filtering by Dammertz, Sewtz, Hanika, and Lensch_](https://jo.dreggn.org/home/2010_atrous.pdf)
-- [_Accelerated Ray Tracing in One Weekend in CUDA by Roger Allen_](https://developer.nvidia.com/blog/accelerated-ray-tracing-cuda/)
-- [_CUDA Denoiser by Janine Liu_](https://github.com/j9liu/Project4-CUDA-Denoiser)
-- [_CUDA Pathtracing Denoiser by Jilin Liu_](https://github.com/Songsong97/Project4-CUDA-Denoiser)
-
-
 
