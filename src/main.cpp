@@ -26,9 +26,18 @@ bool ui_showGbuffer = false;
 bool ui_denoise = false;
 GBufferType ui_gbufferType;
 int ui_filterSize = 80;
-float ui_colorWeight = 0.45f;
-float ui_normalWeight = 0.35f;
-float ui_positionWeight = 0.2f;
+float ui_colorWeight = 1.5f;
+float ui_normalWeight = 0.5f;
+float ui_positionWeight = 1.0f;
+
+int last_filterSize = 80;
+float last_colorWeight = ui_colorWeight;
+float last_normalWeight = ui_normalWeight;
+float last_positionWeight = ui_positionWeight;
+
+float last_denoise = ui_denoise;
+float last_showGbuffer = ui_showGbuffer;
+
 bool ui_saveAndExit = false;
 
 static bool camchanged = true;
@@ -123,9 +132,31 @@ void saveImage() {
 
 static bool denoised = false;
 void runCuda() {
-    if (lastLoopIterations != ui_iterations) {
-      lastLoopIterations = ui_iterations;
-      camchanged = true;
+    if (last_filterSize != ui_filterSize || 
+        last_colorWeight != ui_colorWeight || 
+        last_normalWeight != ui_normalWeight || 
+        last_positionWeight != ui_positionWeight || 
+        lastLoopIterations != ui_iterations ||
+        last_showGbuffer != ui_showGbuffer)
+    {
+        lastLoopIterations = ui_iterations;
+        last_filterSize = ui_filterSize;
+        last_colorWeight = ui_colorWeight;
+        last_normalWeight = ui_normalWeight;
+        last_positionWeight = ui_positionWeight;
+        last_showGbuffer = ui_showGbuffer;
+
+        camchanged = true;
+        denoised = false;
+    }
+
+    if (last_denoise != ui_denoise)
+    {
+        if (ui_denoise == false)
+            camchanged = true;
+        denoised = false;
+
+        last_denoise = ui_denoise;
     }
 
     if (camchanged) {
@@ -146,9 +177,7 @@ void runCuda() {
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
         camchanged = false;
-
         denoised = false;
-        ui_denoise = false;
       }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
@@ -168,9 +197,7 @@ void runCuda() {
         // execute the kernel
         int frame = 0;
         pathtrace(frame, iteration);
-    }
-
-    if (ui_denoise && !denoised)
+    }else if (ui_denoise && !denoised)
     {
         Denoise denoise;
         denoise.kernelSize = ui_filterSize;

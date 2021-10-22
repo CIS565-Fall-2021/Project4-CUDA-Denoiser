@@ -105,11 +105,13 @@ __global__ void filterImage(glm::ivec2 resolution,
             // filter
             float h_q = denoise.kernel[i];
 
-            float w_rt = glm::exp(-glm::distance(image[index] / (float)iter, image[qIndex] / (float)iter) / 4);
-            float w_n = powf(glm::max(0.f, glm::dot(gBuffer[index].normal, gBuffer[qIndex].normal)), 64);
-            float w_x = glm::exp(-glm::distance(gBuffer[index].position, gBuffer[qIndex].position)/10); // TODO: add gradient
+            //float w_n = powf(glm::max(0.f, glm::dot(gBuffer[index].normal, gBuffer[qIndex].normal)), 64);
 
-            float weight = w_n * w_rt * w_x;
+            float w_rt = glm::exp(-glm::distance(image[index] / (float)iter, image[qIndex] / (float)iter) / (denoise.colorWeight * denoise.colorWeight + 0.0001f));
+            float w_n = glm::exp(-glm::distance(gBuffer[index].normal, gBuffer[qIndex].normal) / (denoise.normalWeight * denoise.normalWeight + 0.0001f));
+            float w_x = glm::exp(-glm::distance(gBuffer[index].position, gBuffer[qIndex].position)/ (denoise.positionWeight * denoise.positionWeight + 0.0001f));
+
+            float weight = w_rt * w_n * w_x;
 
             // summation
             sum += h_q * weight * pixQ;
