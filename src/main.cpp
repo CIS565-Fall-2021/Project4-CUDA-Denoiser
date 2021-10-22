@@ -29,6 +29,7 @@ float ui_colorWeight = 0.45f;
 float ui_normalWeight = 0.35f;
 float ui_positionWeight = 0.2f;
 bool ui_saveAndExit = false;
+bool imageDenoised = false;
 
 static bool camchanged = true;
 static float dtheta = 0, dphi = 0;
@@ -175,12 +176,11 @@ void runCuda() {
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
 
     if (iteration == 0) {
-        int filter_size = glm::sqrt(ui_filterSize);
-        filter_size = filter_size % 2 == 0 ? filter_size + 1 : filter_size;
-        float *gKernel = new float[filter_size * filter_size];
-        FilterCreation(filter_size, gKernel);
+        float *gKernel = new float[5 * 5];
+        FilterCreation(5, gKernel);
         pathtraceFree();
-        pathtraceInit(scene, ui_colorWeight, ui_normalWeight, ui_positionWeight, gKernel, filter_size);
+        pathtraceInit(scene, gKernel);
+        imageDenoised = false;
     }
 
     uchar4 *pbo_dptr = NULL;
@@ -191,14 +191,19 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
+        pathtrace(frame, iteration); 
     }
 
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr);
     }
-    else if (ui_denoise)
+    else if (ui_denoise && iteration == ui_iterations)
     {
+        if (!imageDenoised)
+        {
+            imageDenoised = DenoiseImage(renderState->camera.resolution.x, renderState->camera.resolution.y, iteration, ui_filterSize,
+                ui_colorWeight, ui_normalWeight, ui_positionWeight);
+        }
         showDenoise(pbo_dptr, iteration);
     }
     else {
