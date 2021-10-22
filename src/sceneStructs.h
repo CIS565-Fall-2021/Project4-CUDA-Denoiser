@@ -38,6 +38,7 @@ struct Material {
     float hasRefractive;
     float indexOfRefraction;
     float emittance;
+    float fuzziness;
 };
 
 struct Camera {
@@ -70,13 +71,27 @@ struct PathSegment {
 // 1) color contribution computation
 // 2) BSDF evaluation: generate a new ray
 struct ShadeableIntersection {
-  float t;
-  glm::vec3 surfaceNormal;
-  int materialId;
+    float t;
+    glm::vec3 surfaceNormal;
+    int materialId;
+    glm::vec3 intersectionPoint;
+    bool outside;
 };
 
 // CHECKITOUT - a simple struct for storing scene geometry information per-pixel.
 // What information might be helpful for guiding a denoising filter?
 struct GBufferPixel {
-  float t;
+    float t;
+    glm::vec3 normal;
+    glm::vec3 pos;
 };
+
+struct isTerminated
+{
+    __host__ __device__
+        bool operator()(const PathSegment& p)
+    {
+        return p.remainingBounces > 0;
+    }
+};
+

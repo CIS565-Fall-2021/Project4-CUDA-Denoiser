@@ -1,0 +1,10 @@
+// Camera
+CAMERA
+RES         1280 720
+FOVY        45
+ITERATIONS  10
+DEPTH       8
+FILE        sphere
+EYE         13 -2 3
+LOOKAT      0 0 0
+UP          0 1 0
