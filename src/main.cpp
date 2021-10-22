@@ -157,18 +157,23 @@ void runCuda() {
     uchar4 *pbo_dptr = NULL;
     cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
+    int num_paths = -1; 
     if (iteration < ui_iterations) {
         iteration++;
 
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
+        num_paths = pathtrace(frame, iteration, iteration == ui_iterations);
+    }
+
+    if (iteration == ui_iterations) {
+        denoise(ui_filterSize, ui_colorWeight, ui_positionWeight, ui_normalWeight); 
     }
 
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr);
     } else {
-      showImage(pbo_dptr, iteration);
+      showImage(pbo_dptr, iteration, ui_denoise);
     }
 
     // unmap buffer object
