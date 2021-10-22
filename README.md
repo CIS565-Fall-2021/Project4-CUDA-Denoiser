@@ -9,6 +9,10 @@ CUDA Denoiser For CUDA Path Tracer
 
 
 
+- This project is an extension of my [CUDA Path Tracer](https://github.com/PacosLelouch/Project3-CUDA-Path-Tracer).
+
+
+
 ![Overall381](img/readme/cornell_garage_kit_ADVPIPE_depth12_denoise1_filterSize4_PP01--CACHE1st--BVH.2021-10-21_13-01-14z.381samp.png)
 
 
@@ -22,7 +26,7 @@ CUDA Denoiser For CUDA Path Tracer
 - Implemented the A-trous wavelet filter.
 - Implemented the edge avoiding A-trous wavelet filter.
 - Implemented temporal sampling.
-- Implemented shared memory version (but still with some problem).
+- Implemented shared memory version.
 
 
 
@@ -72,21 +76,25 @@ If the camera, the lights or the objects moves, we can also take advantage of th
 
 I have not implemented the complete version of SVGF and do not separate direct illumination and indirect illumination, so it cannot reach the performance that SVGF does. But the figures above show that with temporal filter, we can keep much filtered data while moving the camera as much as possible. 
 
+It also shows that one of the disadvantage of temporal filter is the lagging of the reflected pixels. In scene "Micro Facet", even though the changing of the image is smoother with temporal filter, the reflected pixels appears lagging. 
+
 
 
 ### Shared Memory Optimization
 
 For each pixel, the filter process reads several neighboring pixels to compute a final value, so there are many pixels read for several times in each blocks. This process is likely to benefit from shared memory. 
 
-I tried to implement shared memory optimization, but I found some problems at the boundary of the screen, and it only gets faster with a simple A-trous filter, but gets slower with the edge avoiding version. This disadvantage may comes from the large size of the G-buffer pixel. It even causes that I cannot make the block size and the filter size larger, otherwise there will be invalid arguments of calling the denoising kernels.
-
 
 
 ## Performance Analysis
 
+
+
 ### Filter Size and Resolution
 
-I did the performance analysis with the two scenes and different filter size.
+I did the performance analysis with the two scenes and different filter size. 
+
+Notice that `the actual filter size = 2 * the parameter of filter size + 1`.
 
 
 
@@ -118,17 +126,17 @@ We can see that with the filter size larger, the light is more blurry in the sce
 
 ### Material Type
 
-We can also infer that, the filter makes the glossy material more diffuse, as is also shown in the overall image. Also, I believe that the denoising effect on diffuse objects is better, so I think that we can also add considerations some properties of materials such as roughness, specular, in the filter.
+We can also infer that, the filter makes the glossy material more diffuse, or overblurred, as is also shown in the overall image. Also, I believe that the denoising effect on diffuse objects is better, so I think that we can also add considerations about some properties of materials such as roughness, specular, in the filter.
 
 
 
 ### Shared Memory
 
-My shared memory optimization only works better on naive A-trous wavelet filter, and may cause an error if the filter size is large with edge avoiding A-trous wavelet filter. 
+I find my shared memory optimization only gets faster with the first two sweep of the wavelet filter, but gets slower with the third sweep. This disadvantage may comes from the large size of the G-buffer pixel. It even causes that I cannot make the block size and the filter size larger, otherwise there will be invalid arguments of calling the denoising kernels. According to my test result, the maximum filter size is 4 with the default 8x8 block size. However, this block size is the minimum size so the filter size cannot be larger unless I should optimize the G-buffer.
 
 
 
-TODO
+![DenoisingTimeWithAndWithoutSharedMemory](img/readme/DenoisingTimeWithAndWithoutSharedMemory.png)
 
 
 
@@ -140,7 +148,11 @@ In previous chapter, we can see that when the camera moves around, the duration 
 
 
 
-TODO
+![DenoisingTimeWithAndWithoutTemporalFilter](img/readme/DenoisingTimeWithAndWithoutTemporalFilter.png)
+
+
+
+This figure shows that the temporal filter is much faster than spatial filter, so it hardly makes the denoising much slower. 
 
 
 

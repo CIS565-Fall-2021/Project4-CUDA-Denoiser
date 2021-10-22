@@ -204,7 +204,7 @@ __global__ void denoise_A_Torus_EdgeAvoiding_OneSweep(Texture2D<glm::vec3> outFr
             }
         }
         __syncthreads();
-        GBufferPixel gbp0 = sharedGBuffer[threadIdx.y * (blockDim.x + 4 * stride) + threadIdx.x];
+        GBufferPixel gbp0 = sharedGBuffer[(threadIdx.y + 2 * stride) * (blockDim.x + 4 * stride) + threadIdx.x + 2 * stride];
 #else // DENOISE_WITH_SHARED_MEMORY
         GBufferPixel gbp0 = gBuffer.getPixelByHW(idxY, idxX);
 #endif // DENOISE_WITH_SHARED_MEMORY
@@ -320,7 +320,7 @@ __global__ void denoise_A_Torus_EdgeAvoidingMoreParam_OneSweep(Texture2D<glm::ve
             }
         }
         __syncthreads();
-        GBufferPixel gbp0 = sharedGBuffer[threadIdx.y * (blockDim.x + 4 * stride) + threadIdx.x];
+        GBufferPixel gbp0 = sharedGBuffer[(threadIdx.y + 2 * stride) * (blockDim.x + 4 * stride) + threadIdx.x + 2 * stride];
 #else // DENOISE_WITH_SHARED_MEMORY
         GBufferPixel gbp0 = gBuffer.getPixelByHW(idxY, idxX);
 #endif // DENOISE_WITH_SHARED_MEMORY

@@ -102,16 +102,19 @@ int main(int argc, char** argv) {
         sceneFile = argv[1];
     }
     if (argc < 3) {
-        std::cout << "Enable denoise? (1/0): " << std::flush;
+        std::cout << "Enable denoise? (4-6 spatial temporal/1-3 spatial/0 disable): " << std::flush;
         std::cin >> ui_denoiseTypeIndex;
-        ui_denoise = ui_denoiseTypeIndex;
-        ui_denoiseTypeIndex = glm::clamp(ui_denoiseTypeIndex, 1, static_cast<int>(Denoise::DenoiserType::MAX_INDEX)) - 1;
     }
     else {
         ui_denoiseTypeIndex = atoi(argv[2]);
-        ui_denoise = ui_denoiseTypeIndex;
-        ui_denoiseTypeIndex = glm::clamp(ui_denoiseTypeIndex, 1, static_cast<int>(Denoise::DenoiserType::MAX_INDEX)) - 1;
     }
+    ui_denoise = ui_denoiseTypeIndex;
+    int denoiseTypeMaxIndex = static_cast<int>(Denoise::DenoiserType::MAX_INDEX);
+    if (ui_denoiseTypeIndex > denoiseTypeMaxIndex) {
+        ui_temporal = true;
+        ui_denoiseTypeIndex -= denoiseTypeMaxIndex;
+    }
+    ui_denoiseTypeIndex = glm::clamp(ui_denoiseTypeIndex, 1, denoiseTypeMaxIndex) - 1;
 
     if (argc < 4) {
         std::cout << "Filter size? : " << std::flush;

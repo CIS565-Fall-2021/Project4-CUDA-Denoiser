@@ -318,6 +318,10 @@ int Scene::loadCamera() {
         state.imageName += "_filterSize" + std::to_string(ui_filterSize);
     }
 
+#if DENOISE_WITH_SHARED_MEMORY
+    state.imageName += "_shMem";
+#endif // DENOISE_WITH_SHARED_MEMORY
+
     std::string postprocessStr = "_PP";
     size_t activePP = 0;
     for (size_t i = 0; i < postprocesses.size(); ++i) {
