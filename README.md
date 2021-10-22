@@ -6,6 +6,12 @@ CUDA Denoiser For CUDA Path Tracer
 * Ashley Alexander-Lee
 * Tested on: Windows 10, i9-11900H @ 2.50GHz 22GB, RTX 3070 
 
+| Beauty | Denoised |
+| ------ | -------- |
+| ![Mirror Scene Beauty](img/renders/mirrors516.png) | ![Mirror Scene Denoised](img/renders/mirrors516_denoised.png) |
+
+*Iterations: 516, depth: 8, 1000x1000, filter size: 80*
+
 Description
 ==========
 
@@ -13,7 +19,7 @@ This denoiser is an implementation of [Edge-Avoiding A-Trous Wavelet Transform f
 
 My approach was to take the beauty pass after all of the pathtracer iterations and run the denoiser on it (assuming the user checks Denoise in the gui). The first step was to apply an approximated gaussian blur. Given the desired filter (i.e. gaussian kernel) size, I calculate the number of kernel expansions that need to be done with `log2(filterSize/5)`, since the filter size doubles with every denoising iteration, as per the A-Trous method. By expanding the 5x5 kernel iteratively instead of using the full kernel, I could limit the amount of space required for the kernel, at the expense of compute. 
 
-I maintained two device arrays: `dev_denoised` and `dev_denoised_tmp`. The later contained the accumulated wavelets, while the later held only the previous round's wavelet. During each round, I would add the calculated wavelet to `dev_denoised` and replace the values in `dev_denoised_tmp`. I also declared a 5x5 `dev_gaussian_kernel`, which contained the gaussian weights. Each surrounding pixel `q`'s contribution to the current pixel `p` was determined by `color_q * kernel_val * w(p, q)`. 
+I maintained two device arrays: `dev_denoised` and `dev_denoised_tmp`. The former contained the accumulated wavelets, while the latter held only the previous round's wavelet. During each round, I would add the calculated wavelet to `dev_denoised` and replace the values in `dev_denoised_tmp`. I also declared a 5x5 `dev_gaussian_kernel`, which contained the gaussian weights. Each surrounding pixel `q`'s contribution to the current pixel `p` was determined by `color_q * kernel_val * w(p, q)`. 
 
 During depth 0, I create a GBuffer containing the position and the normal. During the denoising stage, I use those values to determine the weight w, which accounts for edge detection. 
 
@@ -57,6 +63,20 @@ I found that as the filter size increases, the fidelity increases, but only up u
 | 40 | ![Filter Size 40](img/renders/filter40.png) | 640 | ![Filter Size 640](img/renders/filter640.png) |
 | 80 | ![Filter Size 80](img/renders/filter80.png) | | |
 
+### Materials and Effects
+As you might expect, this algorithm works the best with diffuse, untextured surfaces. However, for specular surfaces, it takes longer to capture the reflective and refractive detail, since the only weights that help us define the reflection and refraction are the color weights. As you can see below, the reflective and refractive details are blurred when there are as few as 130 iterations, and detail detection only improves after higher numbers of iterations. 
+
+| Iterations | Beauty | Denoised |
+|----------- | ------ | -------- |
+| 130 | ![Beauty Refraction Render iter130](img/renders/refraction130.png) | ![Denoised Refraction Render iter130](img/renders/refraction130_denoised.png) |
+| 5000 | ![Beauty Refraction Render iter5000](img/renders/refraction5000.png) | ![Denoised Refraction Render iter5000](img/renders/refraction5000_denoised.png) |
+
+Another interesting case study is an endless mirror scene, complete with refraction, reflection, and depth of field. You will notice the same issues with refraction that you saw above. You will also notice lack of definition along the edges of the walls and, in part, along the edges of the model. This is due to the depth of field effect -- if you look closely at the position and normal GBuffers, you will notice similar noisiness. When not at the focal length, depth of field causes rays to be cast to slightly different locations, meaning multiple different positions and normals will be sampled for a single pixel, causing the noisiness in the GBuffer.
+
+|Beauty Render, 516 Iterations |Denoised Render, 516 Iterations | Normals GBuffer |
+|-|-|-|
+| ![Beauty Render Mirrors 516 Iterations](img/renders/mirrors516.png) | ![Denoised Render Mirrors 516 Iterations](img/renders/mirrors516_denoised.png) | ![Normals GBuffer Mirrors](img/renders/mirrors_normals2.png) |
+
 Performance
 ===========
 
@@ -68,9 +88,11 @@ Even when I increase the resolution, I don't see a major decrease in performance
 
 ![Impact of Resolution on Denoiser Performance](img/charts/DenoiserTimeasPixelsIncrease.png)
 
-The filter size impacts the performance slightly, but the slope of the time increase is not too steep. 
+The filter size impacts the performance very slightly (notice that the variation doesn't exceed 0.1s), and the slope of the time increase is not too steep. 
 
 ![Impact of Filter Size on Denoiser Performance](img/charts/HowFilterSizeAffectsPerformance.png)
+
+Therefore, I conclude that even scaled denoising has very little effect on the runtime of the pathtracer. This makes sense, comparatively, since, for n pixels, a pathtracer runs i (iterations) times for each pixel n (with greater compute needs), while a denoiser runs only once for each pixel, with under 1000 surrounding pixel checks for each. A kernel will not need to be larger than 1000, since the resolution itself cannot exceed 10,000 before the pathtracer encounters out of memory issues. So, to compare runtimes, the pathtracer runs in approximately `O(n*i)`, where `i = 1 -> inf`, while the denoiser runs in approximately `O(n)` time, where i is constant since it will always be under 1,000 (unless memory constraints are removed). 
 
 Bloopers
 ========
