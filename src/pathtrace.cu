@@ -14,7 +14,10 @@
 #include "intersections.h"
 #include "interactions.h"
 
+static cudaEvent_t start, stop;
+
 #define ERRORCHECK 1
+#define GBUFFER 
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -418,7 +421,7 @@ __global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterati
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
  */
-void pathtrace(int frame, int iter) {
+void pathtrace(int frame, int iter, int maxIter) {
     const int traceDepth = hst_scene->state.traceDepth;
     const Camera &cam = hst_scene->state.camera;
     const int pixelcount = cam.resolution.x * cam.resolution.y;
@@ -495,9 +498,13 @@ void pathtrace(int frame, int iter) {
 	checkCUDAError("trace one bounce");
 	cudaDeviceSynchronize();
 
-    if (depth == 0) {
+#ifdef GBUFFER
+    if (depth == 0 && iter == maxIter) {
+
+        // TODO: got to see why making depth == 0 && iter == 1 makes this break. 
         generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer);
     }
+#endif
 
   shadeSimpleMaterials<<<numblocksPathSegmentTracing, blockSize1d>>> (
     iter,
@@ -517,9 +524,9 @@ void pathtrace(int frame, int iter) {
 	finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
 
     ///////////////////////////////////////////////////////////////////////////
-
+#ifdef GBUFFER
     FillGBufferColor << <numBlocksPixels, blockSize1d >> > (pixelcount, iter, dev_gBuffer, dev_image);
-
+#endif
     // CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
     // Otherwise, screenshots are also acceptable.
     // Retrieve image from GPU
@@ -573,36 +580,6 @@ void showDenoisedImage(uchar4* pbo, int iter, Denoise denoise)
         for (int j = 0; j < 5; j++)
             denoise.offset[i * 5 + j] = glm::ivec2{ i - 2, j - 2 };
 
-    // TODO: cannot access pointers to gpu memory
-    // calculate sigmas
-   /* glm::vec3 meanNorm{ 0.0 };
-    glm::vec3 meanPos{ 0.0 };
-    glm::vec3 meanColor{ 0.0 };
-    for (int i = 0; i < cam.resolution.x * cam.resolution.y; i++)
-    {
-        meanColor += dev_image[i]/((float)iter);
-        meanNorm += dev_gBuffer[i].normal;
-        meanPos += dev_gBuffer[i].position;
-    }
-    meanColor /= (cam.resolution.x * cam.resolution.y);
-    meanNorm /= (cam.resolution.x * cam.resolution.y);
-    meanPos /= (cam.resolution.x * cam.resolution.y);
-
-    for (int i = 0; i < cam.resolution.x * cam.resolution.y; i++)
-    {
-        denoise.sigma2RT = glm::length((dev_image[i] / ((float)iter) - meanColor) * (dev_image[i] / ((float)iter) - meanColor));
-        denoise.sigma2N = glm::length((dev_gBuffer[i].normal - meanNorm) * (dev_gBuffer[i].normal - meanNorm));
-        denoise.sigma2X = glm::length((dev_gBuffer[i].position - meanPos) * (dev_gBuffer[i].position - meanPos));
-    }
-    denoise.sigma2RT /= (cam.resolution.x * cam.resolution.y);
-    denoise.sigma2N /= (cam.resolution.x * cam.resolution.y);
-    denoise.sigma2X /= (cam.resolution.x * cam.resolution.y);*/
-
-    // TODO: temporary; delete
- /*   denoise.sigma2RT = 1;
-    denoise.sigma2N = 1;
-    denoise.sigma2X = 100;*/
-
     for (int i = 1; i <= (denoise.kernelSize / 5); i <<= 1)
     {
         denoise.stepWidth = i;
@@ -611,8 +588,29 @@ void showDenoisedImage(uchar4* pbo, int iter, Denoise denoise)
         filterImage << <blocksPerGrid2d, blockSize2d >> > 
             (cam.resolution, iter, denoise, dev_image, dev_gBuffer);
     }
+
     // Send results to OpenGL buffer for rendering
+#ifdef GBUFFER
     transferGBufferColor << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, iter, dev_gBuffer, dev_image);
-    //gbufferColorToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer);
-    //sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
+#else
+    sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
+#endif
+}
+
+void cudaStartTime()
+{
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord(start);
+    cudaEventSynchronize(start);
+}
+
+void cudaEndTime()
+{
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    std::cout << "cudaTime: " << milliseconds << "(ms)" << std::endl;
 }

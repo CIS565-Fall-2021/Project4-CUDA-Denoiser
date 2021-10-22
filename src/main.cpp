@@ -6,6 +6,9 @@
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
 
+/* Definitions */
+//#define TIMING_ANALYSIS
+
 static std::string startTimeString;
 
 // For camera controls
@@ -131,7 +134,7 @@ void saveImage() {
 }
 
 static bool denoised = false;
-void runCuda() {
+void runCuda(bool& finished) {
     if (last_filterSize != ui_filterSize || 
         last_colorWeight != ui_colorWeight || 
         last_normalWeight != ui_normalWeight || 
@@ -191,14 +194,21 @@ void runCuda() {
     uchar4 *pbo_dptr = NULL;
     cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
+#ifdef TIMING_ANALYSIS
+    static bool recorded = false;
+#endif
+
     if (iteration < ui_iterations) {
         iteration++;
 
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
+        pathtrace(frame, iteration, ui_iterations);
     }else if (ui_denoise && !denoised)
     {
+#ifdef TIMING_ANALYSIS
+        cudaStartTime;
+#endif
         Denoise denoise;
         denoise.kernelSize = ui_filterSize;
         denoise.positionWeight = ui_positionWeight;
@@ -207,11 +217,22 @@ void runCuda() {
 
         showDenoisedImage(pbo_dptr, iteration, denoise);
         denoised = true;
+
+#ifdef TIMING_ANALYSIS
+        if (!recorded)
+        {
+            cudaEndTime();
+            recorded = true;
+        }
+#endif
     }
     else if (ui_showGbuffer)
       showGBuffer(pbo_dptr, ui_gbufferType);
     else
-      showImage(pbo_dptr, iteration);
+    {
+        finished = true;
+        showImage(pbo_dptr, iteration);
+    }
 
     // unmap buffer object
     cudaGLUnmapBufferObject(pbo);

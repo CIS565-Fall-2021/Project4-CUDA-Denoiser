@@ -25,7 +25,10 @@ enum GBufferType
 
 void pathtraceInit(Scene *scene);
 void pathtraceFree();
-void pathtrace(int frame, int iteration);
+void pathtrace(int frame, int iteration, int max);
 void showGBuffer(uchar4 *pbo, GBufferType type);
 void showImage(uchar4 *pbo, int iter);
 void showDenoisedImage(uchar4* pbo, int iter, Denoise denoise);
+
+void cudaStartTime();
+void cudaEndTime();
