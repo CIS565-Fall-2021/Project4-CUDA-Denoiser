@@ -181,21 +181,21 @@ void runCuda() {
 
     if (iteration == ui_iterations && ui_denoise) {
         denoiseImage(ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight, ui_iterations);
-        duration = (std::clock() - start) / (double)CLOCKS_PER_SEC;
+        //duration = (std::clock() - start) / (double)CLOCKS_PER_SEC;
 
-        std::cout << "pathtrace + denoise time: " << duration << '\n';
-        pathtraceFree();
-        cudaDeviceReset();
-        exit(EXIT_SUCCESS);
+       // std::cout << "pathtrace + denoise time: " << duration << '\n';
+        //pathtraceFree();
+        //cudaDeviceReset();
+        //exit(EXIT_SUCCESS);
     }
-    if (iteration == ui_iterations) {
+    /*if (iteration == ui_iterations) {
         duration = (std::clock() - start) / (double)CLOCKS_PER_SEC;
 
         std::cout << "pathtrace time: " << duration << '\n';
         pathtraceFree();
         cudaDeviceReset();
         exit(EXIT_SUCCESS);
-    }
+    }*/
 
     if (ui_saveAndExit) {      
         saveImage();
