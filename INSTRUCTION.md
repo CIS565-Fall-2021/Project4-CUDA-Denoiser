@@ -102,7 +102,7 @@ more recent papers on denoising, such as "Spatiotemporal Variance-Guided Filteri
 ## Part 2 - A-trous wavelet filter
 
 Implement the A-trous wavelet filter from the paper. :shrug:
-
+  * Refraction (e.g. glass/water) [PBRT 8.2] with Frensel effects using [Schlick's approximation](https://en.wikipedia.org/wiki/Schlick's_approximation) or more accurate methods [PBRT 8.5]. You can use `glm::refract` for Snell's law.
 It's always good to break down techniques into steps that you can individually verify.
 Such a breakdown for this paper could include:
 1. add UI controls to your project - we've done this for you in this base code, but see `Base Code Tour`
@@ -111,11 +111,11 @@ Such a breakdown for this paper could include:
 1. use the G-Buffers to preserve perceived edges
 1. tune parameters to see if they respond in ways that you expect
 1. test more advanced scenes
+  * Physically-based depth-of-field (by jittering rays within an aperture). [PBRT 6.2.3]
 
-## Base Code Tour
-
+* Overview write-up of the feature
 This base code is derived from Project 3. Some notable differences:
-
+* How might this feature be optimized beyond your current implementation?
 * `src/pathtrace.cu` - we've added functions `showGBuffer` and `showImage` to help you visualize G-Buffer info and your denoised results. There's also a `generateGBuffer` kernel on the first bounce of `pathtrace`.
 * `src/sceneStructs.h` - there's a new `GBufferPixel` struct
   * the term G-buffer is more common in the world of rasterizing APIs like OpenGL or WebGL, where many G-buffers may be needed due to limited pixel channels (RGB, RGBA)
@@ -124,7 +124,7 @@ This base code is derived from Project 3. Some notable differences:
 * `src/main.h` and `src/main.cpp` - we've added a bunch of `ui_` variables - these connect to the UI sliders in `src/preview.cpp`, and let you toggle between `showGBuffer` and `showImage`, among other things.
 * `scenes` - we've added `cornell_ceiling_light.txt`, which uses a much larger light and fewer iterations. This can be a good scene to start denoising with, since even in the first iteration many rays will terminate at the light.
 * As usual, be sure to search across the project for `CHECKITOUT` and `TODO`
-
+* If a primitive spans more than one leaf cell in the datastructure, it is sufficient for this project to count the primitive in each leaf cell.
 Note that the image saving functionality isn't hooked up to gbuffers or denoised images yet - you may need to do this yourself, but doing so will be considerably more usable than screenshotting every image.
 
 There's also a couple specific git commits that you can look at for guidance on how to add some of these changes to your own pathtracer, such as `imgui`. You can view these changes on the command line using `git diff [commit hash]`, or on github, for example: https://github.com/CIS565-Fall-2020/Project4-CUDA-Denoiser/commit/0857d1f8f477a39a9ba28a1e0a584b79bd7ec466
@@ -140,11 +140,18 @@ The point of denoising is to reduce the number of samples-per-pixel/pathtracing 
 * how denoising influences the number of iterations needed to get an "acceptably smooth" result
 * how denoising at different resolutions impacts runtime
 * how varying filter sizes affect performance
-
+This project uses GLM for linear algebra.
 In addition to the above, you should also analyze your denoiser on a qualitative level:
 * how visual results vary with filter size -- does the visual quality scale uniformly with filter size?
 * how effective/ineffective is this method with different material types
 * how do results compare across different scenes - for example, between `cornell.txt` and `cornell_ceiling_light.txt`. Does one scene produce better denoised results? Why or why not?
+On NVIDIA cards pre-Fermi (pre-DX12), you may have issues with mat4-vec4 multiplication. If you have one of these cards, be careful! If you have issues, you might need to grab `cudamat4` and `multiplyMV` from the [Fall 2014 project](https://github.com/CIS565-Fall-2014/Project3-Pathtracer).
+
+Let us know if you need to do this.
+
+### Scene File Format
+
+This project uses a custom scene description format. Scene files are flat text files that describe all geometry, materials, lights, cameras, and render settings inside of the scene. Items in the format are delimited by new lines, and comments can be added using C-style `// comments`.
 
 Note that "acceptably smooth" is somewhat subjective - we will leave the means for image comparison up to you, but image diffing tools may be a good place to start, and can help visually convey differences between two images.
 
@@ -157,29 +164,39 @@ The following extra credit items are listed roughly in order of level-of-effort,
 ## G-Buffer optimization
 
 When starting out with gbuffers, it's probably easiest to start storing per-pixel positions and normals as glm::vec3s. However, this can be a decent amount of per-pixel data, which must be read from memory.
-
-Implement methods to store positions and normals more compactly. Two places to start include:
-* storing Z-depth instead of position, and reconstruct position based on pixel coordinates and an inverted projection matrix
-* oct-encoding normals: http://jcgt.org/published/0003/02/01/paper.pdf
+## Comparing A-trous and Gaussian filtering
 
 Be sure to provide performance comparison numbers between optimized and unoptimized implementations.
 
-## Comparing A-trous and Gaussian filtering
-
-Dammertz-et-al mention in their section 2.2 that A-trous filtering is a means for approximating gaussian filtering. Implement gaussian filtering and compare with A-trous to see if one method is significantly faster. Also note any visual differences in your results.
-
-## Shared Memory Filtering
-
+* Use of any third-party code must be approved by asking on our Piazza.
+* If it is approved, all students are welcome to use it. Generally, we approve use of third-party code that is not a core part of the project. For example, for the path tracer, we would approve using a third-party library for loading models, but would not approve copying and pasting a CUDA function for doing refraction.
 Filtering techniques can be somewhat memory-expensive - for each pixel, the technique reads several neighboring pixels to compute a final value. This only gets more expensive with the aditional data in G-Buffers, so these tecniques are likely to benefit from shared memory.
-
+* Sell your project.
+* Assume the reader has a little knowledge of path tracing - don't go into
+  detail explaining what it is. Focus on your project.
+* Don't talk about it like it's an assignment - don't say what is and isn't
+## Implement Temporal Sampling
 Be sure to provide performance comparison numbers between implementations with and without shared memory.
 Also pay attention to how shared memory use impacts the block size for your kernels, and how this may change as the filter width changes.
 
-## Implement Temporal Sampling
+This will require additional buffers, as well as reprojection code to move samples from where they were in a previous frame to the current frame.
+* You wil not be graded on how fast your path tracer runs, but getting close to
+  real-time is always nice!
+* If you have a fast GPU renderer, it is very good to show case this with a
+  video to show interactivity. If you do so, please include a link!
 
 High-performance raytracers in dynamic applications (like games, or real-time visualization engines) now often use temporal sampling, borrowing and repositioning samples from previous frames so that each frame effectively only computes 1 sample-per-pixel but can denoise from many frames.
 
-This will require additional buffers, as well as reprojection code to move samples from where they were in a previous frame to the current frame.
+* Stream compaction helps most after a few bounces. Print and plot the
+If you have modified any of the `CMakeLists.txt` files at all (aside from the list of `SOURCE_FILES`), mentions it explicity. Beware of any build issues discussed on the Piazza.
+* Compare scenes which are open (like the given cornell box) and closed
+  (i.e. no light can escape the scene). Again, compare the performance effects
+
+The title should be "Project 4: YOUR NAME".
+  terminate, so what might you expect?
+* For optimizations that target specific kernels, we recommend using
+  stacked bar graphs to convey total execution time and improvements in
+  individual kernels. For example:
 
 Note that our basic pathtracer doesn't do animation, so you will also need to implement some kind of dynamic aspect in your scene - this may be as simple as an automated panning camera, or as complex as translating models.
 
@@ -188,24 +205,26 @@ See https://research.nvidia.com/publication/2017-07_Spatiotemporal-Variance-Guid
 Submission
 ===
 
-If you have modified any of the `CMakeLists.txt` files at all (aside from the list of `SOURCE_FILES`), mentions it explicity. Beware of any build issues discussed on the Piazza.
-
+If you have modified any of the `CMakeLists.txt` files at all (aside from the
+* [Edge-Avoiding A-Trous Wavelet Transform for fast Global Illumination Filtering](https://jo.dreggn.org/home/2010_atrous.pdf)
+* [Spatiotemporal Variance-Guided Filtering](https://research.nvidia.com/publication/2017-07_Spatiotemporal-Variance-Guided-Filtering%3A)
+* [A Survey of Efficient Representations for Independent Unit Vectors](http://jcgt.org/published/0003/02/01/paper.pdf)
+* ocornut/imgui - https://github.com/ocornut/imgui
 Open a GitHub pull request so that we can see that you have finished.
+The title should be "Project 3: YOUR NAME".
 
-The title should be "Project 4: YOUR NAME".
 The template of the comment section of your pull request is attached below, you can do some copy and paste:
 
 * [Repo Link](https://link-to-your-repo)
 * (Briefly) Mentions features that you've completed. Especially those bells and whistles you want to highlight
-    * Feature 0
-    * Feature 1
-    * ...
+  * Feature 0
+  * Feature 1
+  * ...
 * Feedback on the project itself, if any.
 
 References
 ===
 
-* [Edge-Avoiding A-Trous Wavelet Transform for fast Global Illumination Filtering](https://jo.dreggn.org/home/2010_atrous.pdf)
-* [Spatiotemporal Variance-Guided Filtering](https://research.nvidia.com/publication/2017-07_Spatiotemporal-Variance-Guided-Filtering%3A)
-* [A Survey of Efficient Representations for Independent Unit Vectors](http://jcgt.org/published/0003/02/01/paper.pdf)
-* ocornut/imgui - https://github.com/ocornut/imgui
+* [PBRT] Physically Based Rendering, Second Edition: From Theory To Implementation. Pharr, Matt and Humphreys, Greg. 2010.
+* Antialiasing and Raytracing. Chris Cooksey and Paul Bourke, http://paulbourke.net/miscellaneous/aliasing/
+* [Sampling notes](http://graphics.ucsd.edu/courses/cse168_s14/) from Steve Rotenberg and Matteo Mannino, University of California, San Diego, CSE168: Rendering Algorithms
