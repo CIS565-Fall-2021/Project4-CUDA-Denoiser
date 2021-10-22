@@ -19,16 +19,17 @@ static double lastY;
 // Search for any of these across the whole project to see how these are used,
 // or look at the diff for commit 1178307347e32da064dce1ef4c217ce0ca6153a8.
 // For all the gory GUI details, look at commit 5feb60366e03687bfc245579523402221950c9c5.
-int ui_iterations = 0;
-int startupIterations = 0;
+int ui_iterations = 10;
+int startupIterations = 10;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
 int ui_GbufferMode = GBUFFER_NORMAL;  //switch between different gbuffers
 bool ui_denoise = false;
 int ui_filterSize = 80;
-float ui_colorWeight = 0.45f;
-float ui_normalWeight = 0.35f;
-float ui_positionWeight = 0.2f;
+int ui_filterPasses = 2;
+float ui_colorWeight = 6.7f;
+float ui_normalWeight = 1.4f;
+float ui_positionWeight = 4.0f;
 bool ui_saveAndExit = false;
 
 static bool camchanged = true;
@@ -79,6 +80,9 @@ int main(int argc, char** argv) {
     up = glm::cross(right, view);
 
     cameraPosition = cam.position;
+
+    cam.viewMat = glm::lookAt(cam.position, cam.lookAt, up);
+    cam.projMat = glm::perspective(cam.fov.y, float(cam.resolution.x)/float(cam.resolution.y), NEAR, FAR);
 
     // compute phi (horizontal) and theta (vertical) relative 3D axis
     // so, (0 0 1) is forward, (0 1 0) is up
@@ -144,8 +148,12 @@ void runCuda() {
         cam.position = cameraPosition;
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
+
+        cam.viewMat = glm::lookAt(cam.position, cam.lookAt, cam.up);
+        cam.projMat = glm::perspective(cam.fov.y, float(cam.resolution.x) / float(cam.resolution.y), NEAR, FAR);
+
         camchanged = false;
-      }
+    }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
@@ -158,19 +166,20 @@ void runCuda() {
     uchar4 *pbo_dptr = NULL;
     cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
+    bool denoise = ui_denoise;
     if (iteration < ui_iterations) {
         iteration++;
 
         // execute the kernel
         int frame = 0;
-        bool denoise = iteration == ui_iterations && ui_denoise;
-        pathtrace(frame, iteration, denoise, ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+        denoise = ui_denoise && iteration == ui_iterations;  // only denoise after the last iteration
+        pathtrace(frame, iteration, denoise, ui_filterSize, ui_filterPasses, ui_colorWeight, ui_normalWeight, ui_positionWeight);
     }
 
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr, ui_GbufferMode);
     } else {
-      showImage(pbo_dptr, iteration);
+      showImage(pbo_dptr, iteration, denoise);
     }
 
     // unmap buffer object

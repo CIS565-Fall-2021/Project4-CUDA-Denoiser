@@ -2,6 +2,7 @@
 #include <ctime>
 #include "main.h"
 #include "preview.h"
+#include <chrono>
 
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
@@ -214,6 +215,7 @@ void drawGui(int windowWidth, int windowHeight) {
 
     ImGui::Checkbox("Denoise", &ui_denoise);
 
+    ImGui::SliderInt("Filter Passes", &ui_filterPasses, 1, 10);
     ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 100);
     ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 10.0f);
     ImGui::SliderFloat("Normal Weight", &ui_normalWeight, 0.0f, 10.0f);
@@ -235,8 +237,22 @@ void drawGui(int windowWidth, int windowHeight) {
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
+using time_point_t = std::chrono::high_resolution_clock::time_point;
+
 void mainLoop() {
+    
+    time_point_t time_start_cpu;
+    time_point_t time_end_cpu;
+    bool output = false;
+
     while (!glfwWindowShouldClose(window)) {
+
+        if (iteration == 1)
+        {
+          time_start_cpu = std::chrono::high_resolution_clock::now();
+          output = false;
+        }
+
         glfwPollEvents();
         runCuda();
 
@@ -257,6 +273,14 @@ void mainLoop() {
         drawGui(display_w, display_h);
 
         glfwSwapBuffers(window);
+
+        if (iteration == ui_iterations && !output) {
+          time_end_cpu = std::chrono::high_resolution_clock::now();
+          std::chrono::duration<double, std::milli> duro = time_end_cpu - time_start_cpu;
+          float duration = static_cast<float>(duro.count());
+          std::cout << iteration << " " << duration << endl;
+          output = true;
+        }
     }
     glfwDestroyWindow(window);
     glfwTerminate();

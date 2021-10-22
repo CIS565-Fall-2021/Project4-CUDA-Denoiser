@@ -10,7 +10,7 @@
 
 void pathtraceInit(Scene *scene);
 void pathtraceFree();
-void pathtrace(int frame, int iteration, bool denoise, int filterSize, float colorWeight, float normalWeight, float positionWeight);
+void pathtrace(int frame, int iteration, bool denoise, int filterSize, int filterPasses, float colorWeight, float normalWeight, float positionWeight);
 //void denoise(int filterSize, float colorWeight, float normalWeight, float positionWeight);
 void showGBuffer(uchar4 *pbo, int mode);
-void showImage(uchar4 *pbo, int iter);
+void showImage(uchar4 *pbo, int iter, bool denoise);

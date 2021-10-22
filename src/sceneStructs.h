@@ -6,6 +6,8 @@
 #include "glm/glm.hpp"
 
 #define BACKGROUND_COLOR (glm::vec3(0.0f))
+#define NEAR 1.f
+#define FAR 50.0f
 
 enum GeomType {
     SPHERE,
@@ -49,6 +51,8 @@ struct Camera {
     glm::vec3 right;
     glm::vec2 fov;
     glm::vec2 pixelLength;
+    glm::mat4 projMat;
+    glm::mat4 viewMat;
 };
 
 struct RenderState {
@@ -81,4 +85,5 @@ struct GBufferPixel {
   float t;
   glm::vec3 n;  //normal
   glm::vec3 p;  //position
+  float z;      //z-depth
 };

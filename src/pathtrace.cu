@@ -9,6 +9,7 @@
 #include "scene.h"
 #include "glm/glm.hpp"
 #include "glm/gtx/norm.hpp"
+#include "glm/gtx/transform.hpp"
 #include "utilities.h"
 #include "pathtrace.h"
 #include "intersections.h"
@@ -16,8 +17,9 @@
 
 
 #define ERRORCHECK 1
-#define USE_GBUFFER 0
-#define FILTER_PASS 3
+#define USE_GBUFFER 1
+#define COMPACT_GBUFFER 0
+#define DENOISE_TIMING 1
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -88,11 +90,20 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
           break;
 
         case GBUFFER_POSITION:
-          glm::vec3 pos = 0.1f*gBuffer[index].p * 256.0f;
-          pbo[index].w = 0;
-          pbo[index].x = abs(pos.x);
-          pbo[index].y = abs(pos.y);
-          pbo[index].z = abs(pos.z);
+          if (COMPACT_GBUFFER) {
+            float z = abs(gBuffer[index].z) * 256.0f;
+            pbo[index].w = 0;
+            pbo[index].x = z;
+            pbo[index].y = z;
+            pbo[index].z = z;
+          }
+          else {
+            glm::vec3 pos = 0.1f * gBuffer[index].p * 256.0f;
+            pbo[index].w = 0;
+            pbo[index].x = abs(pos.x);
+            pbo[index].y = abs(pos.y);
+            pbo[index].z = abs(pos.z);
+          }
           break;
 
         case GBUFFER_NORMAL:
@@ -116,7 +127,12 @@ static GBufferPixel* dev_gBuffer = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
 
-static glm::vec3* dev_dSum = NULL;
+static glm::vec3* dev_denoised_image = NULL;
+
+#if DENOISE_TIMING
+static cudaEvent_t startEvent = NULL;
+static cudaEvent_t endEvent = NULL;
+#endif
 
 
 void pathtraceInit(Scene *scene) {
@@ -141,8 +157,13 @@ void pathtraceInit(Scene *scene) {
     cudaMalloc(&dev_gBuffer, pixelcount * sizeof(GBufferPixel));
 
     // TODO: initialize any extra device memeory you need
-    cudaMalloc(&dev_dSum, pixelcount * sizeof(glm::vec3));
-    cudaMemset(dev_dSum, 0, pixelcount * sizeof(glm::vec3));
+    cudaMalloc(&dev_denoised_image, pixelcount * sizeof(glm::vec3));
+    cudaMemset(dev_denoised_image, 0, pixelcount * sizeof(glm::vec3));
+
+#if DENOISE_TIMING
+    cudaEventCreate(&startEvent);
+    cudaEventCreate(&endEvent);
+#endif
 
     checkCUDAError("pathtraceInit");
 }
@@ -156,7 +177,14 @@ void pathtraceFree() {
     cudaFree(dev_gBuffer);
     // TODO: clean up any extra device memory you created
 
-    cudaFree(dev_dSum);
+    cudaFree(dev_denoised_image);
+
+#if DENOISE_TIMING
+    if (startEvent != NULL)
+      cudaEventDestroy(startEvent);
+    if (endEvent != NULL)
+      cudaEventDestroy(endEvent);
+#endif
 
     checkCUDAError("pathtraceFree");
 }
@@ -308,13 +336,21 @@ __global__ void generateGBuffer (
   int num_paths,
   ShadeableIntersection* shadeableIntersections,
 	PathSegment* pathSegments,
-  GBufferPixel* gBuffer) {
+  GBufferPixel* gBuffer,
+  glm::mat4 camView) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < num_paths)
   {
     gBuffer[idx].t = shadeableIntersections[idx].t;
     gBuffer[idx].n = shadeableIntersections[idx].surfaceNormal; // *0.5f + glm::vec3(0.5f);
-    gBuffer[idx].p = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
+    glm::vec3 point = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
+    gBuffer[idx].p = point;
+
+    // TODO: Implement depth buffer for position reconstruction
+    float a = (FAR + NEAR) / (FAR - NEAR);
+    float b = 2.0 * FAR * NEAR / (FAR - NEAR);
+    float ze = (glm::inverse(camView) * glm::vec4(point, 1.f)).z;  // z in eye space
+    gBuffer[idx].z = (ze - NEAR) / (FAR - NEAR); //a + b / ze;
   }
 }
 
@@ -344,7 +380,7 @@ __device__ inline float gaussianWeight(int x, int y, float s) {
 
 // Denoise Kernel
 __global__ void kernDenoise(int width, int height, glm::vec3* image, 
-  int filterSize, GBufferPixel* gBuffer,
+  int filterSize, GBufferPixel* gBuffer, int stepWidth, glm::mat4 camView, glm::mat4 camProj, 
   float colorWeight, float normalWeight, float positionWeight) {
 
   // 5x5 B3-spline filter
@@ -362,54 +398,36 @@ __global__ void kernDenoise(int width, int height, glm::vec3* image,
   if (index < width*height) {
     
     glm::vec3 c0 = image[index];
-    glm::vec3 c1;
+    glm::vec3 c1 = glm::vec3(0.f);
     glm::vec3 dSum = glm::vec3(0.f);
 
-    // convolve/interpolate
-    int h = 1;
-    while (true) {
-
-      c1 = glm::vec3(0.f);
-
-      float k = 0.f;
-      for (int i = -2; i <= 2; i++) {
-        for (int j = -2; j <= 2; j++) {
-          int x0 = x + i * h;
-          int y0 = y + j * h; 
-          // Check if the x and y are within bound
-          if (x0 >= 0 && x0 < width && y0 >= 0 && y0 < height)
-          {
-            int idx = x0 + y0 * width;
+    float k = 0.f;
+    for (int i = -2; i <= 2; i++) {
+      for (int j = -2; j <= 2; j++) {
+        int x0 = x + i * stepWidth;
+        int y0 = y + j * stepWidth; 
+        // Check if the x and y are within bound
+        if (x0 >= 0 && x0 < width && y0 >= 0 && y0 < height)
+        {
+          int idx = x0 + y0 * width;
             
-            float weight = 1.f;
+          float weight = 1.f;
 
 #if USE_GBUFFER
-            float c_w = calculateWeight(image[index], image[idx], colorWeight);
-            float n_w = calculateWeight(gBuffer[index].n, gBuffer[idx].n, normalWeight);
-            float p_w = calculateWeight(gBuffer[index].p, gBuffer[idx].p, positionWeight);
-            weight = c_w * n_w * p_w;
+          float c_w = calculateWeight(image[index], image[idx], colorWeight);
+          float n_w = calculateWeight(gBuffer[index].n, gBuffer[idx].n, normalWeight);
+          float p_w = calculateWeight(gBuffer[index].p, gBuffer[idx].p, positionWeight);
+          weight = c_w * n_w * p_w;
 #endif
 
-            float ker = kernel[i + 2][j + 2];
-            c1 += weight * ker * image[idx];
-            k  += weight * ker;
-          }
+          float ker = kernel[i + 2][j + 2];
+          c1 += weight * ker * image[idx];
+          k  += weight * ker;
         }
       }
-
-      c1 /= k;
-
-      h <<= 1;
-      if (4 * h <= filterSize)
-        dSum += (c1 - c0);
-      else
-        break;
-
-      c0 = c1;
     }
 
-    // c = c_N + dSum
-    image[index] = c1 + dSum;
+    image[index] = c1 / k;
   }
 }
 
@@ -417,7 +435,7 @@ __global__ void kernDenoise(int width, int height, glm::vec3* image,
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
  */
-void pathtrace(int frame, int iter, bool denoise, int filterSize, float colorWeight, float normalWeight, float positionWeight) {
+void pathtrace(int frame, int iter, bool denoise, int filterSize, int filterPasses, float colorWeight, float normalWeight, float positionWeight) {
     const int traceDepth = hst_scene->state.traceDepth;
     const Camera &cam = hst_scene->state.camera;
     const int pixelcount = cam.resolution.x * cam.resolution.y;
@@ -495,7 +513,7 @@ void pathtrace(int frame, int iter, bool denoise, int filterSize, float colorWei
 	cudaDeviceSynchronize();
 
   if (depth == 0) {
-    generateGBuffer<<<numblocksPathSegmentTracing, blockSize1d>>>(num_paths, dev_intersections, dev_paths, dev_gBuffer);
+    generateGBuffer<<<numblocksPathSegmentTracing, blockSize1d>>>(num_paths, dev_intersections, dev_paths, dev_gBuffer, cam.viewMat);
   }
 
 	depth++;
@@ -510,27 +528,52 @@ void pathtrace(int frame, int iter, bool denoise, int filterSize, float colorWei
   iterationComplete = depth == traceDepth;
 	}
   
-  if (denoise) {
-    for (int i = 0; i < FILTER_PASS; i++) {
-      kernDenoise <<<blocksPerGrid2d, blockSize2d>>> (
-        cam.resolution.x,
-        cam.resolution.y,
-        dev_image, filterSize, dev_gBuffer,
-        colorWeight, normalWeight, positionWeight);
-    }
-  }
-
   // Assemble this iteration and apply it to the image
   dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
-	finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
+  finalGather << <numBlocksPixels, blockSize1d >> > (num_paths, dev_image, dev_paths);
 
-    ///////////////////////////////////////////////////////////////////////////
+  if (denoise) {
+    cudaMemcpy(dev_denoised_image, dev_image, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
 
+#if DENOISE_TIMING
+    cudaEventRecord(startEvent);
+#endif    
+
+    for (int i = 0; i < filterPasses; i++) {
+      int stepWidth = 1;
+      while (4*stepWidth <= filterSize) {
+        kernDenoise << <blocksPerGrid2d, blockSize2d >> > (
+          cam.resolution.x,
+          cam.resolution.y,
+          dev_denoised_image, filterSize,
+          dev_gBuffer, stepWidth, cam.viewMat, cam.projMat,
+          colorWeight, normalWeight, positionWeight);
+        stepWidth <<= 1;
+      }
+    }
+
+#if DENOISE_TIMING
+    cudaEventRecord(endEvent);
+    cudaEventSynchronize(endEvent);
+    float ms;
+    cudaEventElapsedTime(&ms, startEvent, endEvent);
+    std::cout << "Denoise Kernel";
+    std::cout << " " << ms << std::endl;
+#endif
+
+    cudaMemcpy(hst_scene->state.image.data(), dev_denoised_image,
+      pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
+  }
+  else {
     // CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
     // Otherwise, screenshots are also acceptable.
     // Retrieve image from GPU
     cudaMemcpy(hst_scene->state.image.data(), dev_image,
-            pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
+      pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
+  }
+    ///////////////////////////////////////////////////////////////////////////
+
+
 
     checkCUDAError("pathtrace");
 }
@@ -547,7 +590,7 @@ void showGBuffer(uchar4* pbo, int mode) {
     gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer, mode);
 }
 
-void showImage(uchar4* pbo, int iter) {
+void showImage(uchar4* pbo, int iter, bool denoise) {
 const Camera &cam = hst_scene->state.camera;
     const dim3 blockSize2d(8, 8);
     const dim3 blocksPerGrid2d(
@@ -555,5 +598,5 @@ const Camera &cam = hst_scene->state.camera;
             (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
     // Send results to OpenGL buffer for rendering
-    sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_image);
+    sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, denoise ? dev_denoised_image : dev_image);
 }
