@@ -381,9 +381,9 @@ __device__ float w(GBufferPixel& p, GBufferPixel& q, glm::vec3 colP, glm::vec3 c
     return w_rt * w_n * w_x;
 }
 
-__global__ void applyATrousFilter(int nPaths, glm::vec3* dst, glm::vec3* prev_iter, PathSegment* paths, 
+__global__ void applyATrousFilter(int nPaths, glm::vec3* dst, glm::vec3* prev_iter, glm::vec3* beauty, 
                                   float resolution, float* kernel, float offset, GBufferPixel* gbuffers,
-                                  float colW, float norW, float posW, bool firstIter)
+                                  float colW, float norW, float posW, int numIter, bool firstIter)
 {
     int index = (blockIdx.x * blockDim.x) + threadIdx.x;
 
@@ -391,7 +391,6 @@ __global__ void applyATrousFilter(int nPaths, glm::vec3* dst, glm::vec3* prev_it
     {
         glm::vec3 cur_color = glm::vec3(0);
         float k = 0;
-        PathSegment path = paths[index];
 
         for (int x = -2; x < 3; ++x) {
             for (int y = -2; y < 3; ++y) {
@@ -401,9 +400,10 @@ __global__ void applyATrousFilter(int nPaths, glm::vec3* dst, glm::vec3* prev_it
 
                 if (!(l_index < 0 || l_index >= nPaths)) {
                     float h = kernel[(x + 2) + 5 * (y + 2)];
-                    float wW = w(gbuffers[index], gbuffers[l_index], path.color, paths[l_index].color, colW, norW, posW);
-                    glm::vec3 c = firstIter ? paths[l_index].color : dst[l_index];
-                    cur_color += c * h * wW;
+                    glm::vec3 cq = firstIter ? beauty[l_index] / (float) numIter : dst[l_index];
+                    glm::vec3 cp = firstIter ? beauty[index] / (float) numIter : dst[index];
+                    float wW = w(gbuffers[index], gbuffers[l_index], cp, cq, colW, norW, posW);
+                    cur_color += cq * h * wW;
                     k += h * wW;
                 }
 
@@ -414,30 +414,41 @@ __global__ void applyATrousFilter(int nPaths, glm::vec3* dst, glm::vec3* prev_it
     }
 }
 
-void denoiseImage(float filterSize, float colW, float norW, float posW) {
+void denoiseImage(float filterSize, float colW, float norW, float posW, int numIter) {
+
+    std::clock_t start2;
+    double duration2;
+    start2 = std::clock();
+    std::cout << "starting clock at: " << start2 << std::endl;
+
     const Camera& cam = hst_scene->state.camera;
     const int pixelcount = cam.resolution.x * cam.resolution.y;
     const int blockSize1d = 128;
     dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
 
-    //cudaMemset(dev_denoised_tmp, 0, pixelcount * sizeof(glm::vec3));
-    cudaMemcpy(dev_denoised_tmp, dev_image, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
-    cudaMemcpy(dev_denoised, dev_image, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+    cudaMemset(dev_denoised_tmp, 0, pixelcount * sizeof(glm::vec3));
+    cudaMemset(dev_denoised, 0, pixelcount * sizeof(glm::vec3));
 
-    float iterations = floor(log2(filterSize/5.f));
+    float iterations = filterSize < 5 ? 0 : floor(log2(filterSize/5.f));
     float offset = 1;
     
     for (int i = 0; i < iterations; ++i) {
         offset = pow(2, i);
         if (i == 0) {
-            applyATrousFilter << <numBlocksPixels, blockSize1d >> > (pixelcount, dev_denoised, dev_denoised_tmp, dev_paths, cam.resolution.x,
-                dev_gaussian_kernel, offset, dev_gBuffer, colW, norW, posW, true);
+            applyATrousFilter << <numBlocksPixels, blockSize1d >> > (pixelcount, dev_denoised, dev_denoised_tmp, dev_image, cam.resolution.x,
+                dev_gaussian_kernel, offset, dev_gBuffer, colW, norW, posW, numIter, true);
         }
         else {
-            applyATrousFilter << <numBlocksPixels, blockSize1d >> > (pixelcount, dev_denoised, dev_denoised_tmp, dev_paths, cam.resolution.x,
-                dev_gaussian_kernel, offset, dev_gBuffer, colW, norW, posW, false);
+            applyATrousFilter << <numBlocksPixels, blockSize1d >> > (pixelcount, dev_denoised, dev_denoised_tmp, dev_image, cam.resolution.x,
+                dev_gaussian_kernel, offset, dev_gBuffer, colW, norW, posW, numIter, false);
         }
     }
+
+    duration2 = (std::clock() - start2) / (double)CLOCKS_PER_SEC;
+
+    cout.precision(17);
+    std::cout << "ending clock at: " << std::clock() << std::endl;
+    std::cout << "denoise time: " << fixed << duration2 << '\n';
 }
 
 

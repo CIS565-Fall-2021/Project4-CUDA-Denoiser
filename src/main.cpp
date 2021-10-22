@@ -180,18 +180,18 @@ void runCuda() {
     cudaGLUnmapBufferObject(pbo);
 
     if (iteration == ui_iterations && ui_denoise) {
-        denoiseImage(ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+        denoiseImage(ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight, ui_iterations);
         duration = (std::clock() - start) / (double)CLOCKS_PER_SEC;
 
-        std::cout << "printf: " << duration << '\n';
+        std::cout << "pathtrace + denoise time: " << duration << '\n';
         pathtraceFree();
         cudaDeviceReset();
         exit(EXIT_SUCCESS);
     }
-    else if (iteration == ui_iterations) {
+    if (iteration == ui_iterations) {
         duration = (std::clock() - start) / (double)CLOCKS_PER_SEC;
 
-        std::cout << "printf: " << duration << '\n';
+        std::cout << "pathtrace time: " << duration << '\n';
         pathtraceFree();
         cudaDeviceReset();
         exit(EXIT_SUCCESS);
