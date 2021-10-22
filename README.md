@@ -154,6 +154,12 @@ In previous chapter, we can see that when the camera moves around, the duration 
 
 This figure shows that the temporal filter is much faster than spatial filter, so it hardly makes the denoising much slower. 
 
+## Changes
+
+### CMakeList Changes
+
+I add a new project `log_profile` for logging the profile (like CUDA Path Tracer).
+
 
 
 ## Reference
