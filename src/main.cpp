@@ -206,14 +206,11 @@ void runCuda() {
     }
 
     if (ui_denoise) {
-        // Determine number of iterations by desired filter size
-        int num_iter = int(log2((ui_filterSize - 5) / 4.f + 1.f)) + 1;
-
 #if RUN_TIME
         cudaEventRecord(kernel_start);
 #endif
 
-        run_denoiser(ui_colorWeight, ui_normalWeight, ui_positionWeight, num_iter);
+        run_denoiser(ui_colorWeight, ui_normalWeight, ui_positionWeight, ui_filterSize);
 
 #if RUN_TIME
         cudaEventRecord(kernel_stop);

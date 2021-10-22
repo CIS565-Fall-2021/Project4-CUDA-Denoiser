@@ -17,7 +17,7 @@
 #include "intersections.h"
 #include "interactions.h"
 
-#define ERRORCHECK 1
+#define ERRORCHECK 0
 
 // Sort the rays so that rays interacting with the same material are contiguous in memory before shading
 #define MATERIAL_SORT 0
@@ -33,6 +33,9 @@
 
 // Toggle for bounding volume intersection culling to reduce number of rays to be checked
 #define BOUND_BOX 1
+
+// Use a full version Gaussian denoising filter
+#define GAUSSIAN_FILTER 0
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -977,22 +980,96 @@ __global__ void kern_A_Trous_filter(
     }
 }
 
+// Perform edge-avoiding Gaussian wavelet filtering
+__global__ void kern_Gaussian_filter(
+    glm::ivec2 resolution,
+    glm::vec3 *in_img,
+    glm::vec3 *out_img,
+    GBufferPixel *gBuffer,
+    float c_phi,
+    float n_phi,
+    float p_phi,
+    int filter_size,
+    float sigma)
+{
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        glm::vec3 sum = glm::vec3(0.f);
+        glm::vec3 c_val = in_img[x + (y * resolution.x)];
+        glm::vec3 n_val = gBuffer[x + (y * resolution.x)].norm;
+        glm::vec3 p_val = gBuffer[x + (y * resolution.x)].pos;
+
+        int filter_radius = filter_size / 2;
+
+        float cum_w = 0.f;
+        // Traverse all neighbors
+        for (int v = -filter_radius; v <= filter_radius; v++) {
+            for (int u = -filter_radius; u <= filter_radius; u++) {
+                // Coordinates of neighbor, changing for different iterations
+                glm::ivec2 uv = glm::clamp(glm::ivec2(x + u, y + v), glm::ivec2(0, 0), resolution - 1);
+
+                // Color of neighbor
+                glm::vec3 c_tmp = in_img[uv.x + (uv.y * resolution.x)];
+
+                // Weight for rt buffer
+                float dist = glm::distance2(c_val, c_tmp);
+                float c_w = min(exp(-dist / (c_phi * c_phi)), 1.f);
+
+                // Weight for normal buffer
+                glm::vec3 n_tmp = gBuffer[uv.x + (uv.y * resolution.x)].norm;
+                dist = glm::distance2(n_val, n_tmp);
+                float n_w = min(exp(-dist / (n_phi * n_phi)), 1.f);
+
+                // Weight for position buffer
+                glm::vec3 p_tmp = gBuffer[uv.x + (uv.y * resolution.x)].pos;
+                dist = glm::distance2(p_val, p_tmp);
+                float p_w = min(exp(-dist / (p_phi * p_phi)), 1.f);
+
+                // Filter value at corresponding position
+                // No scale factor since normalization will be performed
+                float f_val = exp(-(u * u + v * v) / (2.f * sigma * sigma));
+
+                // Add contribution and normalize result
+                sum += c_tmp * f_val * c_w * n_w * p_w;
+                cum_w += f_val * c_w * n_w * p_w;
+
+                // Filter without edge-avoiding
+                //sum += c_tmp * f_val;
+                //cum_w += f_val;
+            }
+        }
+
+        out_img[x + (y * resolution.x)] = sum / cum_w;
+    }
+}
+
 // Perform denosing by edge-avoiding A-Trous wavelet filtering
 void run_denoiser(
     float c_phi,
     float n_phi,
     float p_phi,
-    int num_iter)
+    int filter_size)
 {
     // Get result of path tracer
     const Camera &cam = hst_scene->state.camera;
     const int pixelcount = cam.resolution.x * cam.resolution.y;
-    cudaMemcpy(dev_denoised_image, dev_image, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
 
     const dim3 blockSize2d(8, 8);
     const dim3 blocksPerGrid2d(
         (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
         (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
+
+#if GAUSSIAN_FILTER
+    // Variance of Gaussian
+    float sigma = 20.f;
+    kern_Gaussian_filter << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, dev_image, dev_denoised_image, dev_gBuffer, c_phi, n_phi, p_phi, filter_size, sigma);
+#else
+    // Determine number of iterations by desired filter size
+    int num_iter = int(log2((filter_size - 5) / 4.f + 1.f)) + 1;
+
+    cudaMemcpy(dev_denoised_image, dev_image, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
 
     // Filter for num_iter passes
     for (int i = 0; i < num_iter; i++) {
@@ -1004,6 +1081,7 @@ void run_denoiser(
 
         kern_A_Trous_filter << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, dev_denoise_buffer, dev_denoised_image, dev_gBuffer, (c_phi / step_width), n_phi, p_phi, step_width);
     }
+#endif
 
     // Retrieve image from GPU
     cudaMemcpy(hst_scene->state.image.data(), dev_denoised_image, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
