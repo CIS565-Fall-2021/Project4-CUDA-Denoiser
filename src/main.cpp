@@ -1,10 +1,15 @@
 #include "main.h"
 #include "preview.h"
 #include <cstring>
-
+#include "profile_log/logCore.hpp"
+#include "denoise.h"
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
+
+
+#pragma warning(push)
+#pragma warning(disable:4996)
 
 static std::string startTimeString;
 
@@ -24,10 +29,17 @@ int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
 bool ui_denoise = false;
-int ui_filterSize = 80;
-float ui_colorWeight = 0.45f;
-float ui_normalWeight = 0.35f;
-float ui_positionWeight = 0.2f;
+int ui_filterSize = 8;//80;
+float ui_colorWeight = 0.6f;//0.45f;
+float ui_normalWeight = 0.9f;//0.35f;
+float ui_positionWeight = 10.f;//0.2f;
+float ui_planeWeight = 1.0f;
+bool ui_temporal = false;
+float ui_temporalAlpha = 0.1f;// 0.2f;
+int ui_tAccRadius = 5;// 3;
+float ui_colorBoxK = 5.f;// 1.f;
+int ui_denoiseTypeIndex = static_cast<int>(Denoise::DenoiserType::A_TROUS);
+int ui_gBufferDataIndex = static_cast<int>(GBufferDataType::TIME);
 bool ui_saveAndExit = false;
 
 static bool camchanged = true;
@@ -41,23 +53,86 @@ glm::vec3 ogLookAt; // for recentering the camera
 Scene *scene;
 RenderState *renderState;
 int iteration;
+int frame = 0;
+bool paused;
 
 int width;
 int height;
+
+#if ENABLE_CACHE_FIRST_INTERSECTION
+extern bool cacheFirstIntersection;
+extern bool firstIntersectionCached;
+#endif // ENABLE_CACHE_FIRST_INTERSECTION
+#if ENABLE_PROFILE_LOG
+bool saveProfileLog = false;
+#endif // ENABLE_PROFILE_LOG
 
 //-------------------------------
 //-------------MAIN--------------
 //-------------------------------
 
+extern void unitTest();
+
 int main(int argc, char** argv) {
     startTimeString = currentTimeString();
 
+    std::string sceneFileStr;
+    const char* sceneFile = nullptr;
+
     if (argc < 2) {
-        printf("Usage: %s SCENEFILE.txt\n", argv[0]);
-        return 1;
+        //printf("Usage: %s SCENEFILE.txt\n", argv[0]);
+        //return 1;
+        //sceneFile = "../scenes/cornell_testOutline.txt";
+        //sceneFile = "../scenes/cornell.txt";
+        //sceneFile = "../scenes/cornellMF.txt";
+        //sceneFile = "../scenes/cornell2.txt";
+        //sceneFile = "../scenes/sphere.txt";
+        //sceneFile = "../scenes/cornell_ramp.txt";
+
+        //sceneFile = "../scenes/PA_BVH2000.txt";
+        //sceneFile = "../scenes/PA_BVH135280.txt";
+
+        //sceneFile = "../scenes/cornell_garage_kit.txt";
+        //sceneFile = "../scenes/cornell_garage_kit_microfacet.txt";
+        std::cout << "Input sceneFile: " << std::flush;
+        std::cin >> sceneFileStr;
+        sceneFile = sceneFileStr.c_str();
+    }
+    else {
+        sceneFile = argv[1];
+    }
+    if (argc < 3) {
+        std::cout << "Enable denoise? (4-6 spatial temporal/1-3 spatial/0 disable): " << std::flush;
+        std::cin >> ui_denoiseTypeIndex;
+    }
+    else {
+        ui_denoiseTypeIndex = atoi(argv[2]);
+    }
+    ui_denoise = ui_denoiseTypeIndex;
+    int denoiseTypeMaxIndex = static_cast<int>(Denoise::DenoiserType::MAX_INDEX);
+    if (ui_denoiseTypeIndex > denoiseTypeMaxIndex) {
+        ui_temporal = true;
+        ui_denoiseTypeIndex -= denoiseTypeMaxIndex;
+    }
+    ui_denoiseTypeIndex = glm::clamp(ui_denoiseTypeIndex, 1, denoiseTypeMaxIndex) - 1;
+
+    if (argc < 4) {
+        std::cout << "Filter size? : " << std::flush;
+        std::cin >> ui_filterSize;
+    }
+    else {
+        ui_filterSize = atoi(argv[3]);
     }
 
-    const char *sceneFile = argv[1];
+#if ENABLE_PROFILE_LOG
+    if (argc < 5) {
+        std::cout << "Save profile log? (1/0): " << std::flush;
+        std::cin >> saveProfileLog;
+    }
+    else {
+        saveProfileLog = atoi(argv[4]);
+    }
+#endif // ENABLE_PROFILE_LOG
 
     // Load scene file
     scene = new Scene(sceneFile);
@@ -91,22 +166,31 @@ int main(int argc, char** argv) {
     // Initialize CUDA and GL components
     init();
 
+    unitTest();
+
     // GLFW main loop
     mainLoop();
 
+    delete scene;
+    pathtraceFree();
+    cudaDeviceSynchronize();
     return 0;
 }
 
 void saveImage() {
-    float samples = iteration;
+    float samples = static_cast<float>(iteration);
     // output image file
-    image img(width, height);
+    Image::image img(width, height);
 
     for (int x = 0; x < width; x++) {
         for (int y = 0; y < height; y++) {
             int index = x + (y * width);
             glm::vec3 pix = renderState->image[index];
+#if false//!PREGATHER_FINAL_IMAGE
             img.setPixel(width - 1 - x, y, glm::vec3(pix) / samples);
+#else // PREGATHER_FINAL_IMAGE
+            img.setPixel(width - 1 - x, y, glm::vec3(pix));
+#endif // PREGATHER_FINAL_IMAGE
         }
     }
 
@@ -120,7 +204,108 @@ void saveImage() {
     //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
+bool triggerClearIterationByUI() {
+    static bool last_ui_denoise = ui_denoise;
+    static int last_ui_filterSize = ui_filterSize;
+    static int last_ui_denoiseTypeIndex = ui_denoiseTypeIndex;
+
+    static float last_ui_colorWeight = ui_colorWeight;
+    static float last_ui_normalWeight = ui_normalWeight;
+    static float last_ui_positionWeight = ui_positionWeight;
+    static float last_ui_planeWeight = ui_planeWeight;
+
+    bool result = false;
+
+    if (ui_denoise != last_ui_denoise) {
+        last_ui_denoise = ui_denoise;
+        result = true;
+    }
+    if (ui_filterSize != last_ui_filterSize) {
+        last_ui_filterSize = ui_filterSize;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_denoiseTypeIndex != last_ui_denoiseTypeIndex) {
+        last_ui_denoiseTypeIndex = ui_denoiseTypeIndex;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_colorWeight != last_ui_colorWeight) {
+        last_ui_colorWeight = ui_colorWeight;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_normalWeight != last_ui_normalWeight) {
+        last_ui_normalWeight = ui_normalWeight;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_positionWeight != last_ui_positionWeight) {
+        last_ui_positionWeight = ui_positionWeight;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_planeWeight != last_ui_planeWeight) {
+        last_ui_planeWeight = ui_planeWeight;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+
+    static bool last_ui_temporal = ui_temporal;
+    static float last_ui_temporalAlpha = ui_temporalAlpha;
+    static float last_ui_colorBoxK = ui_colorBoxK;
+    static int last_ui_tAccRadius = ui_tAccRadius;
+
+    if (ui_temporal != last_ui_temporal) {
+        last_ui_temporal = ui_temporal;
+        if (ui_denoise) {
+            result = true;
+        }
+    }
+    if (ui_temporalAlpha != last_ui_temporalAlpha) {
+        last_ui_temporalAlpha = ui_temporalAlpha;
+        if (ui_denoise && ui_temporal) {
+            result = true;
+        }
+    }
+    if (ui_colorBoxK != last_ui_colorBoxK) {
+        last_ui_colorBoxK = ui_colorBoxK;
+        if (ui_denoise && ui_temporal) {
+            result = true;
+        }
+    }
+    if (ui_tAccRadius != last_ui_tAccRadius) {
+        last_ui_tAccRadius = ui_tAccRadius;
+        if (ui_denoise && ui_temporal) {
+            result = true;
+        }
+    }
+
+    return result;
+}
+
 void runCuda() {
+    static glm::mat4 perspectiveMatrix = renderState->camera.getPerspective();
+    scene->state.lastCamera = scene->state.camera;
+    bool uiChanged = triggerClearIterationByUI();
+    if (uiChanged) {
+        camchanged = true;
+        iteration = 0;
+    }
+
+    if (!ui_temporal) {
+        frame = 0;
+    }
+    else {
+        ++frame;
+    }
+
     if (lastLoopIterations != ui_iterations) {
       lastLoopIterations = ui_iterations;
       camchanged = true;
@@ -144,12 +329,15 @@ void runCuda() {
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
         camchanged = false;
-      }
+
+        cam.worldToView = glm::lookAt(cam.position, cam.lookAt, cam.up);
+        cam.worldToScreen = perspectiveMatrix * cam.worldToView;
+    }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
 
-    if (iteration == 0) {
+    if ((ui_temporal && uiChanged) || iteration == 0) {
         pathtraceFree();
         pathtraceInit(scene);
     }
@@ -157,18 +345,21 @@ void runCuda() {
     uchar4 *pbo_dptr = NULL;
     cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
+    //if (iteration < ui_iterations || ui_temporal) {
     if (iteration < ui_iterations) {
         iteration++;
 
         // execute the kernel
-        int frame = 0;
-        pathtrace(frame, iteration);
+        pathtrace(pbo_dptr, frame, iteration);
     }
 
     if (ui_showGbuffer) {
-      showGBuffer(pbo_dptr);
+      showGBuffer(pbo_dptr, static_cast<GBufferDataType>(ui_gBufferDataIndex));
     } else {
       showImage(pbo_dptr, iteration);
+
+      //cudaMemcpy(scene->state.image.data(), scene->dev_frameBuffer.buffer,
+      //    renderState->camera.resolution.x * renderState->camera.resolution.y * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
     }
 
     // unmap buffer object
@@ -184,59 +375,123 @@ void runCuda() {
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (action == GLFW_PRESS) {
-      switch (key) {
-      case GLFW_KEY_ESCAPE:
-        saveImage();
-        glfwSetWindowShouldClose(window, GL_TRUE);
-        break;
-      case GLFW_KEY_S:
-        saveImage();
-        break;
-      case GLFW_KEY_SPACE:
-        camchanged = true;
-        renderState = &scene->state;
-        Camera &cam = renderState->camera;
-        cam.lookAt = ogLookAt;
-        break;
-      }
+        switch (key) {
+        case GLFW_KEY_P:
+            paused = !paused;
+            break;
+        case GLFW_KEY_ESCAPE:
+            saveImage();
+            glfwSetWindowShouldClose(window, GL_TRUE);
+            break;
+        case GLFW_KEY_S:
+            saveImage();
+            break;
+        case GLFW_KEY_SPACE:
+            camchanged = true;
+            renderState = &scene->state;
+            renderState->camera.lookAt = ogLookAt;
+            break;
+        case GLFW_KEY_UP:
+            camchanged = true;
+            //renderState = &scene->state;
+            //renderState->camera.lookAt = ogLookAt;
+            ++renderState->traceDepth;
+            break;
+        case GLFW_KEY_DOWN:
+            camchanged = true;
+            //renderState = &scene->state;
+            //renderState->camera.lookAt = ogLookAt;
+            renderState->traceDepth = std::max(0, renderState->traceDepth - 1);
+            break;
+        case GLFW_KEY_RIGHT:
+            camchanged = true;
+            //renderState = &scene->state;
+            //renderState->camera.lookAt = ogLookAt;
+            renderState->recordDepth = std::min(renderState->traceDepth, renderState->recordDepth + 1);
+            break;
+        case GLFW_KEY_LEFT:
+            camchanged = true;
+            //renderState = &scene->state;
+            //renderState->camera.lookAt = ogLookAt;
+            renderState->recordDepth = std::max(-1, renderState->recordDepth - 1);
+            break;
+#if ENABLE_CACHE_FIRST_INTERSECTION
+        case GLFW_KEY_C:
+            cacheFirstIntersection = !cacheFirstIntersection;
+            firstIntersectionCached = false;
+            break;
+#endif // ENABLE_CACHE_FIRST_INTERSECTION
+        case GLFW_KEY_0:
+        case GLFW_KEY_1:
+        case GLFW_KEY_2:
+        case GLFW_KEY_3:
+        case GLFW_KEY_4:
+        case GLFW_KEY_5:
+        case GLFW_KEY_6:
+        case GLFW_KEY_7:
+        case GLFW_KEY_8:
+        case GLFW_KEY_9:
+        {
+            size_t index = key - GLFW_KEY_0;
+            if (index < scene->postprocesses.size()) {
+                scene->postprocesses[index].second = !scene->postprocesses[index].second;
+            }
+        }
+            break;
+        }
     }
 }
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
-  if (ImGui::GetIO().WantCaptureMouse) return;
-  leftMousePressed = (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS);
-  rightMousePressed = (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS);
-  middleMousePressed = (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS);
+    if (ImGui::GetIO().WantCaptureMouse) return;
+    leftMousePressed = (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS);
+    rightMousePressed = (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS);
+    middleMousePressed = (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS);
 }
 
 void mousePositionCallback(GLFWwindow* window, double xpos, double ypos) {
-  if (xpos == lastX || ypos == lastY) return; // otherwise, clicking back into window causes re-start
-  if (leftMousePressed) {
-    // compute new camera parameters
-    phi -= (xpos - lastX) / width;
-    theta -= (ypos - lastY) / height;
-    theta = std::fmax(0.001f, std::fmin(theta, PI));
-    camchanged = true;
-  }
-  else if (rightMousePressed) {
-    zoom += (ypos - lastY) / height;
-    zoom = std::fmax(0.1f, zoom);
-    camchanged = true;
-  }
-  else if (middleMousePressed) {
-    renderState = &scene->state;
-    Camera &cam = renderState->camera;
-    glm::vec3 forward = cam.view;
-    forward.y = 0.0f;
-    forward = glm::normalize(forward);
-    glm::vec3 right = cam.right;
-    right.y = 0.0f;
-    right = glm::normalize(right);
+    if (xpos == lastX || ypos == lastY) return; // otherwise, clicking back into window causes re-start
 
-    cam.lookAt -= (float) (xpos - lastX) * right * 0.01f;
-    cam.lookAt += (float) (ypos - lastY) * forward * 0.01f;
-    camchanged = true;
-  }
-  lastX = xpos;
-  lastY = ypos;
+    if (leftMousePressed) {
+        // compute new camera parameters
+        phi -= static_cast<float>(xpos - lastX) / width;
+        theta -= static_cast<float>(ypos - lastY) / height;
+        theta = std::fmax(0.001f, std::fmin(theta, PI));
+        camchanged = true;
+    }
+    else if (rightMousePressed) {
+        zoom += static_cast<float>(ypos - lastY) / height;
+        zoom = std::fmax(0.1f, zoom);
+        camchanged = true;
+    }
+    else if (middleMousePressed) {
+        renderState = &scene->state;
+        Camera &cam = renderState->camera;
+        glm::vec3 forward = cam.view;
+        forward.y = 0.0f;
+        forward = glm::normalize(forward);
+        glm::vec3 right = cam.right;
+        right.y = 0.0f;
+        right = glm::normalize(right);
+
+        cam.lookAt -= (float) (xpos - lastX) * right * 0.01f;
+        cam.lookAt += (float) (ypos - lastY) * forward * 0.01f;
+        camchanged = true;
+    }
+    lastX = xpos;
+    lastY = ypos;
 }
+
+void unitTest() {
+    printf("---Start Unit Test---\n");
+    glm::vec3 a(0.f, 1.f, 0.f);
+    glm::vec3 b(1.f, -1.f, 2.f);
+    glm::vec3 c = glm::max(a, b);
+    printf("c = glm::max(<%f,%f,%f>,<%f,%f,%f>) = <%f,%f,%f>\n",
+        a.r, a.g, a.b,
+        b.r, b.g, b.b,
+        c.r, c.g, c.b);
+    printf("---End Unit Test---\n");
+}
+
+#pragma warning(pop)

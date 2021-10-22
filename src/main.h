@@ -20,14 +20,14 @@
 #include "utilities.h"
 #include "scene.h"
 
-using namespace std;
-
 //-------------------------------
 //----------PATH TRACER----------
 //-------------------------------
 
 extern Scene* scene;
+extern RenderState* renderState;
 extern int iteration;
+extern int frame;
 
 extern int width;
 extern int height;
@@ -40,7 +40,14 @@ extern int ui_filterSize;
 extern float ui_colorWeight;
 extern float ui_normalWeight;
 extern float ui_positionWeight;
+extern float ui_planeWeight;
+extern bool ui_temporal;
+extern float ui_temporalAlpha;
+extern int ui_tAccRadius;
+extern float ui_colorBoxK;
 extern bool ui_saveAndExit;
+extern int ui_denoiseTypeIndex;
+extern int ui_gBufferDataIndex;
 
 void runCuda();
 void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);

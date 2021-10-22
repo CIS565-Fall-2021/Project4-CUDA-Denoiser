@@ -1,11 +1,17 @@
 #define _CRT_SECURE_NO_DEPRECATE
 #include <ctime>
+#include <iomanip>
 #include "main.h"
 #include "preview.h"
-
+#include "denoise.h"
+#include "profile_log/logCore.hpp"
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
+
+
+#pragma warning(push)
+#pragma warning(disable:4996)
 
 #define IMGUI_IMPL_OPENGL_LOADER_GLEW
 
@@ -16,17 +22,42 @@ GLuint displayImage;
 
 GLFWwindow *window;
 
+#if ENABLE_CACHE_FIRST_INTERSECTION
+extern bool cacheFirstIntersection;
+#endif // ENABLE_CACHE_FIRST_INTERSECTION
+
 std::string currentTimeString() {
     time_t now;
     time(&now);
     char buf[sizeof "0000-00-00_00-00-00z"];
-    strftime(buf, sizeof buf, "%Y-%m-%d_%H-%M-%Sz", gmtime(&now));
+
+    strftime(buf, sizeof buf, "%Y-%m-%d_%H-%M-%Sz", localtime(&now));
+    //strftime(buf, sizeof buf, "%Y-%m-%d_%H-%M-%Sz", gmtime(&now));
+
     return std::string(buf);
 }
 
 //-------------------------------
 //----------SETUP STUFF----------
 //-------------------------------
+
+static const std::unordered_map<Denoise::DenoiserType, std::string> denoiserTypeToString {
+    { Denoise::DenoiserType::A_TROUS, "A Trous" },
+    { Denoise::DenoiserType::A_TROUS_EDGE_AVOIDING, "Edge Avoiding" },
+    { Denoise::DenoiserType::A_TROUS_EDGE_AVOIDING_MORE_PARAM, "More Param" },
+};
+
+static const std::unordered_map<GBufferDataType, std::string> gBufferDataTypeToString {
+    { GBufferDataType::TIME, "Time" },
+    { GBufferDataType::BASE_COLOR, "Base Color" },
+    { GBufferDataType::NORMAL, "Normal" },
+    { GBufferDataType::OBJECT_ID, "Object ID" },
+    { GBufferDataType::MATERIAL_ID, "Material ID" },
+    { GBufferDataType::POSITION, "Position" },
+};
+
+static ImGuiWindowFlags windowFlags= ImGuiWindowFlags_None | ImGuiWindowFlags_NoMove;
+static bool ui_hide = false;
 
 void initTextures() {
     glGenTextures(1, &displayImage);
@@ -166,6 +197,8 @@ bool init() {
     initTextures();
     initCuda();
     initPBO();
+    scene->execInitCallbacks();
+    checkCUDAError("initOtherStuff");
     GLuint passthroughProgram = initShader();
 
     glUseProgram(passthroughProgram);
@@ -185,8 +218,39 @@ bool init() {
     return true;
 }
 
-static ImGuiWindowFlags windowFlags= ImGuiWindowFlags_None | ImGuiWindowFlags_NoMove;
-static bool ui_hide = false;
+bool denoiseItemsGetter(void* data, int idx, const char** outText) {
+    auto& dataTypes = *static_cast<const std::unordered_map<Denoise::DenoiserType, std::string>*>(data);
+    if (dataTypes.empty()) {
+        return false;
+    }
+
+    auto key = static_cast<Denoise::DenoiserType>(idx);
+    auto iter = dataTypes.find(key);
+    if (iter == dataTypes.end()) {
+        *outText = dataTypes.begin()->second.c_str();
+    }
+    else {
+        *outText = iter->second.c_str();
+    }
+    return true;
+}
+
+bool gBufferItemsGetter(void* data, int idx, const char** outText) {
+    auto& dataTypes = *static_cast<const std::unordered_map<GBufferDataType, std::string>*>(data);
+    if (dataTypes.empty()) {
+        return false;
+    }
+
+    auto key = static_cast<GBufferDataType>(idx);
+    auto iter = dataTypes.find(key);
+    if (iter == dataTypes.end()) {
+        *outText = dataTypes.begin()->second.c_str();
+    }
+    else {
+        *outText = iter->second.c_str();
+    }
+    return true;
+}
 
 void drawGui(int windowWidth, int windowHeight) {
     // Dear imgui new frame
@@ -196,7 +260,7 @@ void drawGui(int windowWidth, int windowHeight) {
     ImGui::NewFrame();
 
     // Dear imgui define
-    ImVec2 minSize(300.f, 220.f);
+    ImVec2 minSize(300.f, 220.f); // (300.f, 300.f);
     ImVec2 maxSize((float)windowWidth * 0.5, (float)windowHeight * 0.3);
     ImGui::SetNextWindowSizeConstraints(minSize, maxSize);
 
@@ -214,14 +278,30 @@ void drawGui(int windowWidth, int windowHeight) {
 
     ImGui::Checkbox("Denoise", &ui_denoise);
 
+    ImGui::Combo("Denoise Type", &ui_denoiseTypeIndex, denoiseItemsGetter, const_cast<void*>(reinterpret_cast<const void*>(&denoiserTypeToString)), static_cast<int>(denoiserTypeToString.size()));
+
     ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 100);
-    ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 10.0f);
-    ImGui::SliderFloat("Normal Weight", &ui_normalWeight, 0.0f, 10.0f);
-    ImGui::SliderFloat("Position Weight", &ui_positionWeight, 0.0f, 10.0f);
+    ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 20.0f);
+    ImGui::SliderFloat("Normal Weight", &ui_normalWeight, 0.0f, 20.0f);
+    ImGui::SliderFloat("Position Weight", &ui_positionWeight, 0.0f, 50.0f);
+    ImGui::SliderFloat("Plane Weight", &ui_planeWeight, 0.0f, 10.0f);
+
+    ImGui::Separator();
+
+    ImGui::Checkbox("Temporal", &ui_temporal);
+    ImGui::SliderFloat("Alpha", &ui_temporalAlpha, 0.f, 1.f);
+    ImGui::SliderInt("Acc Radius", &ui_tAccRadius, 0, 10);
+    ImGui::SliderFloat("Color Box", &ui_colorBoxK, 0.f, 10.f);
 
     ImGui::Separator();
 
     ImGui::Checkbox("Show GBuffer", &ui_showGbuffer);
+
+    //ImGui::BeginCombo("GBuffer Data", "Preview?");
+    //ImGui::Combo("GBuffer Data", &ui_gBufferDataIndex, { "Time" });
+    //ImGui::EndCombo();
+
+    ImGui::Combo("GBuffer Data Type", &ui_gBufferDataIndex, gBufferItemsGetter, const_cast<void*>(reinterpret_cast<const void*>(&gBufferDataTypeToString)), static_cast<int>(gBufferDataTypeToString.size()));
 
     ImGui::Separator();
 
@@ -235,12 +315,68 @@ void drawGui(int windowWidth, int windowHeight) {
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
-void mainLoop() {
+extern bool paused;
+#if ENABLE_PROFILE_LOG
+extern bool saveProfileLog;
+#endif // ENABLE_PROFILE_LOG
+
+void mainLoop() { 
+#if ENABLE_PROFILE_LOG
+    if (saveProfileLog) {
+        LogCore::ProfileLog::get().initProfile(renderState->imageName, "end", 2, renderState->iterations - 2, 1, std::ios_base::out);
+        std::cout << "Init log profile [" << renderState->imageName << "]" << std::endl;
+    }
+#endif // ENABLE_PROFILE_LOG
+    double fps = 0;
+    double timebase = 0;
+    int frame = 0;
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-        runCuda();
+        if (!paused) {
+            runCuda();
+            frame++;
+        }
 
-        string title = "CIS565 Path Tracer | " + utilityCore::convertIntToString(iteration) + " Iterations";
+        double time = glfwGetTime();
+
+        if (time - timebase > 1.0) {
+            fps = frame / (time - timebase);
+            timebase = time;
+            frame = 0;
+        }
+
+#if ENABLE_PROFILE_LOG
+        if (!paused && saveProfileLog) {
+            LogCore::ProfileLog::get().step(fps, time * 1000.);
+        }
+#endif // ENABLE_PROFILE_LOG
+
+        std::string postprocessStr = "PP: ";
+        for (size_t i = 0; i < scene->postprocesses.size(); ++i) {
+            if (scene->postprocesses[i].second) {
+                postprocessStr += std::to_string(i);
+            }
+        }
+
+#if ENABLE_PROFILE_LOG
+        std::string fpsStr;
+        std::stringstream ss;
+        ss << std::fixed << std::setprecision(2) << fps;
+        ss >> fpsStr;
+#endif // ENABLE_PROFILE_LOG
+        std::string title = "CIS565 Path Tracer | "
+#if ENABLE_PROFILE_LOG
+            + std::string(" FPS: ") + fpsStr + " | "
+#endif // ENABLE_PROFILE_LOG
+            + utilityCore::convertIntToString(renderState->traceDepth) + " Depths" " | "
+            + (renderState->recordDepth < 0 ? " All Bounce" " | " : (utilityCore::convertIntToString(renderState->recordDepth) + " Bounce or Upper" " | "))
+            + postprocessStr + " | "
+            + utilityCore::convertIntToString(iteration) + " Iterations"
+#if ENABLE_CACHE_FIRST_INTERSECTION
+            + (cacheFirstIntersection ? " (Cache1stBounce)" : "")
+#endif // ENABLE_CACHE_FIRST_INTERSECTION
+            + (paused ? " (Paused)" : "");
         glfwSetWindowTitle(window, title.c_str());
 
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
@@ -261,3 +397,5 @@ void mainLoop() {
     glfwDestroyWindow(window);
     glfwTerminate();
 }
+
+#pragma warning(pop)

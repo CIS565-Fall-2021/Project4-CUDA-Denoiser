@@ -62,6 +62,9 @@ set(GLM_ROOT_DIR "external")
 find_package(GLM REQUIRED)
 include_directories(${GLM_INCLUDE_DIRS})
 
+add_subdirectory(profile_log)
+include_directories(.)
+
 set(headers
     src/main.h
     src/image.h
@@ -73,6 +76,20 @@ set(headers
     src/sceneStructs.h
     src/preview.h
     src/utilities.h
+    src/denoise.h
+    
+    src/scenestruct/texture.h
+    src/scenestruct/material.h
+    src/scenestruct/geometry.h
+    
+    src/scenestruct/material.inl
+    src/scenestruct/materialPhong.inl
+    src/scenestruct/materialPerfectDielectric.inl
+    src/scenestruct/materialMicrofacetGGX.inl
+
+    src/scenestruct/geometry.inl
+    
+    src/thirdparty/tiny_obj_loader.h
     )
 
 set(sources
@@ -84,6 +101,11 @@ set(sources
     src/scene.cpp
     src/preview.cpp
     src/utilities.cpp
+    src/denoise.cu
+    
+    src/scene.cu
+    
+    src/thirdparty/tiny_obj_loader.cc
     )
 
 set(imgui
@@ -110,10 +132,8 @@ source_group(Headers FILES ${headers})
 source_group(Sources FILES ${sources})
 source_group(imgui FILES ${imgui})
 
-#add_subdirectory(stream_compaction)  # TODO: uncomment if using your stream compaction
-
 cuda_add_executable(${CMAKE_PROJECT_NAME} ${sources} ${headers} ${imgui})
 target_link_libraries(${CMAKE_PROJECT_NAME}
     ${LIBRARIES}
-    #stream_compaction  # TODO: uncomment if using your stream compaction
+    profile_log
     )
