@@ -17,7 +17,7 @@
 #define MATERIALSORT 1
 #define CACHEFIRST 0
 #define BOUNDINGBOX 0
-#define ANTIALIASING 1
+#define ANTIALIASING 0
 #define DOF 0
 #define FOCALDISTANCE 5
 #define LENRADIUS 1.0f

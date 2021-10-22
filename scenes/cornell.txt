@@ -52,10 +52,10 @@ EMITTANCE   0
 CAMERA
 RES         800 800
 FOVY        45
-ITERATIONS  5000
+ITERATIONS  50
 DEPTH       8
 FILE        cornell
-EYE         0.0 5 4.5
+EYE         0.0 5 7.5
 LOOKAT      0 5 0
 UP          0 1 0
 
@@ -109,19 +109,18 @@ ROTAT       0 0 0
 SCALE       .01 10 10
 
 // front wall
-OBJECT 6
-cube
-material 1
-TRANS       0 5 5
-ROTAT       0 90 0
-SCALE       .01 10 10
+//OBJECT 6
+//cube
+//material 1
+//TRANS       0 5 5
+//ROTAT       0 90 0
+//SCALE       .01 10 10
 
 
 // TEAPOT
-OBJECT 7
-mesh
-../mesh/teapot_s1.obj
+OBJECT 6
+sphere
 material 4
-TRANS       0 0  0
+TRANS       0 5  0
 ROTAT       0 0 0
-SCALE       15 15 15
+SCALE       3 3 3
