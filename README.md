@@ -12,7 +12,7 @@ CUDA Denoiser For CUDA Path Tracer
 A pathtracing denoiser based on the paper [Edge-Avoiding À-Trous Wavelet Transform for fast Global Illumination Filtering](https://jo.dreggn.org/home/2010_atrous.pdf), which utilizes geometry buffers to guide a smoothing filter.
 
 ![](img/res/represent.png)
-> Scene: scenes/represent.txt
+> Scene: scenes/denoise.txt
 
 ## Edge-Avoiding À-Trous Wavelet Filter
 
