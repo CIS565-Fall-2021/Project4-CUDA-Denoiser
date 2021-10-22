@@ -2,12 +2,19 @@
 #include <ctime>
 #include "main.h"
 #include "preview.h"
+#include <chrono>
+#include <iomanip>
 
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
 
 #define IMGUI_IMPL_OPENGL_LOADER_GLEW
+
+#define FIXED_FLOAT(x) std::fixed <<std::setprecision(2)<<(x) 
+
+static std::chrono::time_point<std::chrono::system_clock> start;
+
 
 GLuint positionLocation = 0;
 GLuint texcoordsLocation = 1;
@@ -214,10 +221,10 @@ void drawGui(int windowWidth, int windowHeight) {
 
     ImGui::Checkbox("Denoise", &ui_denoise);
 
-    ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 100);
-    ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 10.0f);
-    ImGui::SliderFloat("Normal Weight", &ui_normalWeight, 0.0f, 10.0f);
-    ImGui::SliderFloat("Position Weight", &ui_positionWeight, 0.0f, 10.0f);
+    ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 128);
+    ImGui::SliderFloat("Color Sigma", &ui_colorWeight, 1.0f, 3.0f);
+    ImGui::SliderFloat("Normal Sigma", &ui_normalWeight, 0.0f, 1.0f);
+    ImGui::SliderFloat("Position Sigma", &ui_positionWeight, 0.5f, 2.0f);
 
     ImGui::Separator();
 
@@ -236,9 +243,22 @@ void drawGui(int windowWidth, int windowHeight) {
 }
 
 void mainLoop() {
+    bool finished = false;
+    bool recorded = false;
+    start = std::chrono::system_clock::now();
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-        runCuda();
+        
+        runCuda(finished);
+
+        if (finished && !recorded)
+        {
+            std::chrono::time_point<std::chrono::system_clock> end = std::chrono::system_clock::now();
+            float milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+            std::cout << "Elapsed time: " << FIXED_FLOAT(milliseconds / 1000.f) << " (s)" << std::endl << std::endl;
+            recorded = true;
+        }
 
         string title = "CIS565 Path Tracer | " + utilityCore::convertIntToString(iteration) + " Iterations";
         glfwSetWindowTitle(window, title.c_str());

@@ -6,6 +6,9 @@
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
 
+/* Definitions */
+//#define TIMING_ANALYSIS
+
 static std::string startTimeString;
 
 // For camera controls
@@ -24,10 +27,20 @@ int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
 bool ui_denoise = false;
+GBufferType ui_gbufferType;
 int ui_filterSize = 80;
-float ui_colorWeight = 0.45f;
-float ui_normalWeight = 0.35f;
-float ui_positionWeight = 0.2f;
+float ui_colorWeight = 1.5f;
+float ui_normalWeight = 0.5f;
+float ui_positionWeight = 1.0f;
+
+int last_filterSize = 80;
+float last_colorWeight = ui_colorWeight;
+float last_normalWeight = ui_normalWeight;
+float last_positionWeight = ui_positionWeight;
+
+float last_denoise = ui_denoise;
+float last_showGbuffer = ui_showGbuffer;
+
 bool ui_saveAndExit = false;
 
 static bool camchanged = true;
@@ -120,10 +133,33 @@ void saveImage() {
     //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
-void runCuda() {
-    if (lastLoopIterations != ui_iterations) {
-      lastLoopIterations = ui_iterations;
-      camchanged = true;
+static bool denoised = false;
+void runCuda(bool& finished) {
+    if (last_filterSize != ui_filterSize || 
+        last_colorWeight != ui_colorWeight || 
+        last_normalWeight != ui_normalWeight || 
+        last_positionWeight != ui_positionWeight || 
+        lastLoopIterations != ui_iterations ||
+        last_showGbuffer != ui_showGbuffer)
+    {
+        lastLoopIterations = ui_iterations;
+        last_filterSize = ui_filterSize;
+        last_colorWeight = ui_colorWeight;
+        last_normalWeight = ui_normalWeight;
+        last_positionWeight = ui_positionWeight;
+        last_showGbuffer = ui_showGbuffer;
+
+        camchanged = true;
+        denoised = false;
+    }
+
+    if (last_denoise != ui_denoise)
+    {
+        if (ui_denoise == false)
+            camchanged = true;
+        denoised = false;
+
+        last_denoise = ui_denoise;
     }
 
     if (camchanged) {
@@ -144,6 +180,7 @@ void runCuda() {
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
         camchanged = false;
+        denoised = false;
       }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
@@ -157,18 +194,44 @@ void runCuda() {
     uchar4 *pbo_dptr = NULL;
     cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
+#ifdef TIMING_ANALYSIS
+    static bool recorded = false;
+#endif
+
     if (iteration < ui_iterations) {
         iteration++;
 
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
-    }
+        pathtrace(frame, iteration, ui_iterations);
+    }else if (ui_denoise && !denoised)
+    {
+#ifdef TIMING_ANALYSIS
+        cudaStartTime;
+#endif
+        Denoise denoise;
+        denoise.kernelSize = ui_filterSize;
+        denoise.positionWeight = ui_positionWeight;
+        denoise.colorWeight = ui_colorWeight;
+        denoise.normalWeight = ui_normalWeight;
 
-    if (ui_showGbuffer) {
-      showGBuffer(pbo_dptr);
-    } else {
-      showImage(pbo_dptr, iteration);
+        showDenoisedImage(pbo_dptr, iteration, denoise);
+        denoised = true;
+
+#ifdef TIMING_ANALYSIS
+        if (!recorded)
+        {
+            cudaEndTime();
+            recorded = true;
+        }
+#endif
+    }
+    else if (ui_showGbuffer)
+      showGBuffer(pbo_dptr, ui_gbufferType);
+    else
+    {
+        finished = true;
+        showImage(pbo_dptr, iteration);
     }
 
     // unmap buffer object
@@ -193,11 +256,25 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         saveImage();
         break;
       case GLFW_KEY_SPACE:
-        camchanged = true;
-        renderState = &scene->state;
-        Camera &cam = renderState->camera;
-        cam.lookAt = ogLookAt;
-        break;
+      {
+          camchanged = true;
+          renderState = &scene->state;
+          Camera& cam = renderState->camera;
+          cam.lookAt = ogLookAt;
+          break;
+      }
+      case GLFW_KEY_1:
+      case GLFW_KEY_KP_1:
+          ui_gbufferType = GBufferType::COLOR;
+          break;
+      case GLFW_KEY_2:
+      case GLFW_KEY_KP_2:
+          ui_gbufferType = GBufferType::POSITION;
+          break;
+      case GLFW_KEY_3:
+      case GLFW_KEY_KP_3:
+          ui_gbufferType = GBufferType::NORMAL;
+          break;
       }
     }
 }
