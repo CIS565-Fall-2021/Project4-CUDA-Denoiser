@@ -113,6 +113,8 @@ __global__ void filterImage(glm::ivec2 resolution,
 
             float weight = w_rt * w_n * w_x;
 
+            //weight = 1; // Uncomment for gaussian blur
+
             // summation
             sum += h_q * weight * pixQ;
             k += h_q * weight;

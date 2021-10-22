@@ -214,7 +214,7 @@ void drawGui(int windowWidth, int windowHeight) {
 
     ImGui::Checkbox("Denoise", &ui_denoise);
 
-    ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 100);
+    ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 128);
     ImGui::SliderFloat("Color Sigma", &ui_colorWeight, 1.0f, 3.0f);
     ImGui::SliderFloat("Normal Sigma", &ui_normalWeight, 0.0f, 1.0f);
     ImGui::SliderFloat("Position Sigma", &ui_positionWeight, 0.5f, 2.0f);
