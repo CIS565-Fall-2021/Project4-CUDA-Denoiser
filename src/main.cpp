@@ -120,6 +120,9 @@ void saveImage() {
     //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
+std::clock_t start;
+double duration;
+
 void runCuda() {
     if (lastLoopIterations != ui_iterations) {
       lastLoopIterations = ui_iterations;
@@ -152,6 +155,8 @@ void runCuda() {
     if (iteration == 0) {
         pathtraceFree();
         pathtraceInit(scene);
+        
+        start = std::clock();
     }
 
     uchar4 *pbo_dptr = NULL;
@@ -162,19 +167,37 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
+        pathtrace(frame, iteration, ui_denoise);
     }
 
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr);
     } else {
-      showImage(pbo_dptr, iteration);
+      showImage(pbo_dptr, iteration, ui_denoise);
     }
 
     // unmap buffer object
     cudaGLUnmapBufferObject(pbo);
 
-    if (ui_saveAndExit) {
+    if (iteration == ui_iterations && ui_denoise) {
+        denoiseImage(ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight, ui_iterations);
+        //duration = (std::clock() - start) / (double)CLOCKS_PER_SEC;
+
+       // std::cout << "pathtrace + denoise time: " << duration << '\n';
+        //pathtraceFree();
+        //cudaDeviceReset();
+        //exit(EXIT_SUCCESS);
+    }
+    /*if (iteration == ui_iterations) {
+        duration = (std::clock() - start) / (double)CLOCKS_PER_SEC;
+
+        std::cout << "pathtrace time: " << duration << '\n';
+        pathtraceFree();
+        cudaDeviceReset();
+        exit(EXIT_SUCCESS);
+    }*/
+
+    if (ui_saveAndExit) {      
         saveImage();
         pathtraceFree();
         cudaDeviceReset();

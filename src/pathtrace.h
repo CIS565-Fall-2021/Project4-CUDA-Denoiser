@@ -5,6 +5,7 @@
 
 void pathtraceInit(Scene *scene);
 void pathtraceFree();
-void pathtrace(int frame, int iteration);
+void pathtrace(int frame, int iteration, bool denoise);
 void showGBuffer(uchar4 *pbo);
-void showImage(uchar4 *pbo, int iter);
+void showImage(uchar4 *pbo, int iter, bool denoise);
+void denoiseImage(float filterSize, float colorW, float norW, float posW, int numIter);
