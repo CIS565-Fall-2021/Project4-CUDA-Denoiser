@@ -40,23 +40,69 @@ glm::vec3 calculateRandomDirectionInHemisphere(
         + sin(around) * over * perpendicularDirection2;
 }
 
-/**
- * Simple ray scattering with diffuse and perfect specular support.
- */
+__host__ __device__ float getFresnelCoefficient(float eta, float cosTheta, float matIOF) {
+    // handle total internal reflection
+    float sinThetaI = sqrt(max(0.f, 1.f - cosTheta * cosTheta));
+    float sinThetaT = eta * sinThetaI;
+    float fresnelCoeff = 1.f;
+
+    cosTheta = abs(cosTheta);
+    if (sinThetaT < 1) {
+
+        float cosThetaT = sqrt(max(0.f, 1.f - sinThetaT * sinThetaT));
+
+        float rparl = ((matIOF * cosTheta) - (cosThetaT)) / ((matIOF * cosTheta) + (cosThetaT));
+        float rperp = ((cosTheta)-(matIOF * cosThetaT)) / ((cosTheta)+(matIOF * cosThetaT));
+        fresnelCoeff = (rparl * rparl + rperp * rperp) / 2.0;
+    }
+    return fresnelCoeff;
+}
+
 __host__ __device__
 void scatterRay(
-		PathSegment & pathSegment,
-        glm::vec3 intersect,
-        glm::vec3 normal,
-        const Material &m,
-        thrust::default_random_engine &rng) {
-    glm::vec3 newDirection;
+    PathSegment& pathSegment,
+    glm::vec3 intersect,
+    glm::vec3 normal,
+    const Material& m,
+    thrust::default_random_engine& rng) {
+
+    glm::vec3 newDir;
+
+    // specular surface
     if (m.hasReflective) {
-        newDirection = glm::reflect(pathSegment.ray.direction, normal);
-    } else {
-        newDirection = calculateRandomDirectionInHemisphere(normal, rng);
+        newDir = glm::reflect(pathSegment.ray.direction, normal);
+    }
+    else if (m.hasRefractive) {
+        const glm::vec3& wi = pathSegment.ray.direction;
+
+        float cosTheta = dot(normal, wi);
+
+        // incoming direction should be opposite normal direction if entering medium
+        bool entering = cosTheta < 0;
+        glm::vec3 faceForwardN = !entering ? -normal : normal;
+
+        // if entering, divide air iof (1.0) by the medium's iof
+        float eta = entering ? 1.f / m.indexOfRefraction : m.indexOfRefraction;
+        float fresnelCoeff = getFresnelCoefficient(eta, cosTheta, m.indexOfRefraction);
+
+        thrust::uniform_real_distribution<float> u01(0, 1);
+        if (u01(rng) < fresnelCoeff) {
+            newDir = glm::normalize(glm::reflect(pathSegment.ray.direction, normal));
+        }
+        else {
+            newDir = glm::normalize(glm::refract(wi, faceForwardN, eta));
+        }
+
+        pathSegment.ray.origin = intersect + 0.001f * pathSegment.ray.direction;
+        pathSegment.ray.direction = newDir;
+        return;
+
+    }
+    // diffuse surface
+    else {
+        newDir = calculateRandomDirectionInHemisphere(normal, rng);
     }
 
-    pathSegment.ray.direction = newDirection;
-    pathSegment.ray.origin = intersect + (newDirection * 0.0001f);
+    pathSegment.ray.origin = intersect;
+    pathSegment.ray.direction = newDir;
 }
