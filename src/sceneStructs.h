@@ -78,6 +78,10 @@ struct PathSegment {
     int remainingBounces;
 };
 
+struct GBufferPixel {
+    float t;
+};
+
 // Use with a corresponding PathSegment to do:
 // 1) color contribution computation
 // 2) BSDF evaluation: generate a new ray
