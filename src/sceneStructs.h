@@ -168,7 +168,13 @@ struct ShadeableIntersection
     bool useTexture = false;
 };
 
+// CHECKITOUT - a simple struct for storing scene geometry information per-pixel.
+// What information might be helpful for guiding a denoising filter?
 struct GBufferPixel
 {
     float t;
+    glm::vec3 pos;   // position
+    glm::vec3 norm;  // normal vector
+    glm::vec3 bCol;  // diffuse base color
+    glm::vec3 rtCol; // ray traced pix color
 };

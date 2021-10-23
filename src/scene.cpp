@@ -420,6 +420,7 @@ int Scene::loadMaterial(string materialid)
     int id = atoi(materialid.c_str());
     if (id != materials.size())
     {
+        // cout << "materials size = " << materials.size() << " id = " << id << endl;
         cout << "ERROR: MATERIAL ID does not match expected number of materials" << endl;
         return -1;
     }

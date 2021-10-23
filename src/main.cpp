@@ -64,6 +64,11 @@ int main(int argc, char **argv)
   // Load scene file
   scene = new Scene(sceneFile);
 
+  // for (auto const &m : scene->materials)
+  // {
+  //   std::cout << glm::to_string(m.color) << std::endl;
+  // }
+
   // Set up camera stuff from loaded path tracer settings
   iteration = 0;
   renderState = &scene->state;
@@ -126,6 +131,12 @@ void saveImage()
   //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
+void saveDenoise()
+{
+  setBufferToDenoised();
+  saveImage();
+}
+
 void runCuda()
 {
   if (lastLoopIterations != ui_iterations)
@@ -178,15 +189,46 @@ void runCuda()
     int frame = 0;
     // pathtrace(pbo_dptr, frame, iteration);
     pathtrace(frame, iteration);
+
+    // for (auto const &m : scene->materials)
+    // {
+    //   std::cout << glm::to_string(m.color) << std::endl;
+    // }
   }
 
   //   // unmap buffer object
   //   cudaGLUnmapBufferObject(pbo);
   // }
+  static int prev_filterSize = 0;
+  static float prev_normalWeight = 0.f;
+  static float prev_positionWeight = 0.f;
+  static float prev_colorWeight = 0.f;
+  if (ui_denoise && iteration == ui_iterations)
+  {
+    // iteration++;
+    if (prev_filterSize != ui_filterSize ||
+        prev_normalWeight != ui_normalWeight ||
+        prev_positionWeight != ui_positionWeight ||
+        prev_colorWeight != ui_colorWeight)
+    {
+      denoiseFree();
+      denoiseInit(scene);
+      denoise(ui_filterSize, ui_normalWeight, ui_positionWeight, ui_colorWeight);
+      // freeDenoise();
+      prev_filterSize = ui_filterSize;
+      prev_normalWeight = ui_normalWeight;
+      prev_positionWeight = ui_positionWeight;
+      prev_colorWeight = ui_colorWeight;
+    }
+  }
 
   if (ui_showGbuffer)
   {
-    showGBuffer(pbo_dptr);
+    showGBuffer(pbo_dptr, ui_normalWeight, ui_positionWeight, ui_colorWeight);
+  }
+  else if (ui_denoise)
+  {
+    showDenoised(pbo_dptr, iteration);
   }
   else
   {
@@ -199,9 +241,13 @@ void runCuda()
   // else
   if (ui_saveAndExit)
   {
-    saveImage();
+    ui_denoise ? saveDenoise() : saveImage();
     pathtraceFree();
     cudaDeviceReset();
+    // if (ui_denoise && iteration == ui_iterations)
+    // {
+    //   denoiseFree();
+    // }
     exit(EXIT_SUCCESS);
   }
 }
