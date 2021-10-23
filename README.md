@@ -18,27 +18,27 @@ The objective of this project was to implement A Trous denoiser detailed in this
 ### Components of A Trous Denoiser
 Scene Colors:
 <p align="center">
-  <img src="img/a0.png" alt="drawing" width="400" />
+  <img src="img/a0.PNG" alt="drawing" width="400" />
 </p>
 
 Scene Positions (relative to camera origin):
 <p align="center">
-  <img src="img/a1.png" alt="drawing" width="400" />
+  <img src="img/a1.PNG" alt="drawing" width="400" />
 </p>
 
 Scene Normals: 
 <p align="center">
-  <img src="img/a2.png" alt="drawing" width="400" />
+  <img src="img/a2.PNG" alt="drawing" width="400" />
 </p>
 
 Scene Time to Intersect (unused): 
 <p align="center">
-  <img src="img/a3.png" alt="drawing" width="400" />
+  <img src="img/a3.PNG" alt="drawing" width="400" />
 </p>
 
 ### Denoised Output
 <p align="center">
-  <img src="img/a4.png" alt="drawing" width="400" />
+  <img src="img/a4.PNG" alt="drawing" width="400" />
 </p>
 
 ## Performance Analysis
@@ -51,19 +51,19 @@ In this section, we compare the runtime costs of A Trous denoising, recorded in 
 ### Simple Scene
 Baseline image for reference at 1000 iterations: 
 <p align="center">
-  <img src="img/b0.png" alt="drawing" width="800" />
+  <img src="img/b0.PNG" alt="drawing" width="800" />
 </p>
 Path trace time for 1000 iterations: 33679.50 ms
 Denoise time for 1000 iterations: 62.97 ms
 
 Path traced image after 10 iterations:
 <p align="center">
-  <img src="img/b1.png" alt="drawing" width="800" />
+  <img src="img/b1.PNG" alt="drawing" width="800" />
 </p>
 
 Path traced image after 10 iterations with A Trous denoiser:
 <p align="center">
-  <img src="img/b2.png" alt="drawing" width="800" />
+  <img src="img/b2.PNG" alt="drawing" width="800" />
 </p>
 
 #### Cost of Running Denoiser vs Path Tracer
@@ -74,7 +74,7 @@ Path traced image after 10 iterations with A Trous denoiser:
 
 Lower is better:
 <p align="center">
-  <img src="img/c0.png" alt="drawing" width="400" />
+  <img src="img/c0.PNG" alt="drawing" width="400" />
 </p>
 
 #### Cost of Running Denoiser vs Resolution
@@ -84,12 +84,12 @@ Lower is better:
 
 Lower is better:
 <p align="center">
-  <img src="img/c1.png" alt="drawing" width="400" />
+  <img src="img/c1.PNG" alt="drawing" width="400" />
 </p>
 
 Lower is better:
 <p align="center">
-  <img src="img/c3.png" alt="drawing" width="400" />
+  <img src="img/c3.PNG" alt="drawing" width="400" />
 </p>
 * The increase in time is proportional to the increase in pixelcount for smaller resolutions. 
 
@@ -100,7 +100,7 @@ Lower is better:
 
 Lower is better:
 <p align="center">
-  <img src="img/c2.png" alt="drawing" width="400" />
+  <img src="img/c2.PNG" alt="drawing" width="400" />
 </p>
 
 * Note that the increase in time is not substanctial indicating that I am likely calculating the number of iterations required for A Trous denoise incorrectly. 
@@ -108,19 +108,19 @@ Lower is better:
 ### Slightly Less Simple Scene
 Baseline image for reference at 1000 iterations: 
 <p align="center">
-  <img src="img/d0.png" alt="drawing" width="800" />
+  <img src="img/d0.PNG" alt="drawing" width="800" />
 </p>
 Path trace time for 1000 iterations: 237650.00 ms
 Denoise time for 1000 iterations: 86.21 ms
 
 Path traced image after 10 iterations:
 <p align="center">
-  <img src="img/d1.png" alt="drawing" width="800" />
+  <img src="img/d1.PNG" alt="drawing" width="800" />
 </p>
 
 Path traced image after 10 iterations with A Trous denoiser:
 <p align="center">
-  <img src="img/d2.png" alt="drawing" width="800" />
+  <img src="img/d2.PNG" alt="drawing" width="800" />
 </p>
 
 #### Cost of Running Denoiser vs Path Tracer
@@ -131,7 +131,7 @@ Path traced image after 10 iterations with A Trous denoiser:
 
 Lower is better:
 <p align="center">
-  <img src="img/e0.png" alt="drawing" width="400" />
+  <img src="img/e0.PNG" alt="drawing" width="400" />
 </p>
 
 #### Cost of Running Denoiser vs Resolution
@@ -141,12 +141,12 @@ Lower is better:
 
 Lower is better:
 <p align="center">
-  <img src="img/e1.png" alt="drawing" width="400" />
+  <img src="img/e1.PNG" alt="drawing" width="400" />
 </p>
 
 Lower is better:
 <p align="center">
-  <img src="img/e2.png" alt="drawing" width="400" />
+  <img src="img/e2.PNG" alt="drawing" width="400" />
 </p>
 * The increase in time is proportional to the increase in pixelcount for tested resolutions. 
 
@@ -157,7 +157,7 @@ Lower is better:
 
 Lower is better:
 <p align="center">
-  <img src="img/e3.png" alt="drawing" width="400" />
+  <img src="img/e3.PNG" alt="drawing" width="400" />
 </p>
 
 * Note that the increase in time is not substanctial indicating that I am likely calculating the number of iterations required for A Trous denoise incorrectly. 
@@ -173,22 +173,22 @@ Filter size is the two dimensional area around a pixel. That is, for a filter si
 
 `filterSize = 25`:
 <p align="center">
-  <img src="img/f0.png" alt="drawing" width="800" />
+  <img src="img/f0.PNG" alt="drawing" width="800" />
 </p>
 
 `filterSize = 50`:
 <p align="center">
-  <img src="img/f1.png" alt="drawing" width="800" />
+  <img src="img/f1.PNG" alt="drawing" width="800" />
 </p>
 
 `filterSize = 75`:
 <p align="center">
-  <img src="img/f2.png" alt="drawing" width="800" />
+  <img src="img/f2.PNG" alt="drawing" width="800" />
 </p>
 
 `filterSize = 100`:
 <p align="center">
-  <img src="img/f3.png" alt="drawing" width="800" />
+  <img src="img/f3.PNG" alt="drawing" width="800" />
 </p>
 
 The only substantive change seems to be between `filterSize = 25` and `filterSize = 50`.
@@ -198,17 +198,17 @@ From left to right, the spheres are of properties reflective, refractive (with i
 
 1000 iterations:
 <p align="center">
-  <img src="img/g0.png" alt="drawing" width="800" />
+  <img src="img/g0.PNG" alt="drawing" width="800" />
 </p>
 
 10 iterations:
 <p align="center">
-  <img src="img/g1.png" alt="drawing" width="800" />
+  <img src="img/g1.PNG" alt="drawing" width="800" />
 </p>
 
 10 iterations with A Trous diffuse:
 <p align="center">
-  <img src="img/g2.png" alt="drawing" width="800" />
+  <img src="img/g2.PNG" alt="drawing" width="800" />
 </p>
 
 With my implementation, A Trous denoiser fails to adequately simulate refractive properties. It is moderately capable of simulating diffuse properties. It is capable of simulating reflective properties. 
@@ -219,22 +219,22 @@ Large light uses scene: `/scenes/cornell_ceiling_light.txt`
 
 Cornell Box with small ceiling light: 
 <p align="center">
-  <img src="img/h0.png" alt="drawing" width="800" />
+  <img src="img/h0.PNG" alt="drawing" width="800" />
 </p>
 
 Cornell Box with large ceiling light:
 <p align="center">
-  <img src="img/h1.png" alt="drawing" width="800" />
+  <img src="img/h1.PNG" alt="drawing" width="800" />
 </p>
 
 Cornell Box with small ceiling light and A Trous denoise:
 <p align="center">
-  <img src="img/h2.png" alt="drawing" width="800" />
+  <img src="img/h2.PNG" alt="drawing" width="800" />
 </p>
 
 Cornell Box with large ceiling light and A Trous denoise:
 <p align="center">
-  <img src="img/h3.png" alt="drawing" width="800" />
+  <img src="img/h3.PNG" alt="drawing" width="800" />
 </p>
 
 Given poorer lighting conditions, more "holes" are left in the image. As the A Trous denoiser interpolates neighboring colors for each pixel, it emphasizes darker colors leading to poorer results. 
