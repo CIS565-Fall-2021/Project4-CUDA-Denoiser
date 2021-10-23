@@ -862,6 +862,10 @@ void showImageDenoised(uchar4* pbo, int iter, float phi_c, float phi_n, float ph
     }
 
     sendDenoiseBufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_image_denoise1);
+
+    // Retrieve image from GPU
+    cudaMemcpy(hst_scene->state.image.data(), dev_image_denoise1,
+        cam.resolution.x * cam.resolution.y * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
 }
 
 void showGBuffer(uchar4* pbo, int viewChoice) {
