@@ -21,6 +21,8 @@
 #define DEPTH_OF_FIELD 0
 #define MESH_BOUND_CHECK 1
 #define ANTI_ALIASING 1
+#define GBUFFER_NORMAL 1
+#define GBUFFER_POSITION 0
 
 #define ERRORCHECK 1
 
@@ -79,6 +81,28 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
+#if GBUFFER_NORMAL
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+
+        glm::vec3 normal = (gBuffer[index].normal + glm::vec3(1.0f)) * 0.5f * 256.0f;
+
+        pbo[index].w = 0;
+        pbo[index].x = normal.x;
+        pbo[index].y = normal.y;
+        pbo[index].z = normal.z;
+    }
+#elif GBUFFER_POSITION
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        glm::vec3 position = gBuffer[index].position * 256.0f;
+
+        pbo[index].w = 0;
+        pbo[index].x = position.x;
+        pbo[index].y = position.y;
+        pbo[index].z = position.z;
+    }
+#else
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
         float timeToIntersect = gBuffer[index].t * 256.0;
@@ -88,6 +112,8 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
         pbo[index].y = timeToIntersect;
         pbo[index].z = timeToIntersect;
     }
+#endif
+    
 }
 
 static Scene* hst_scene = NULL;
@@ -361,6 +387,7 @@ __global__ void computeIntersections(
             intersections[path_index].t = t_min;
             intersections[path_index].materialId = geoms[hit_geom_index].materialid;
             intersections[path_index].surfaceNormal = normal;
+            intersections[path_index].position = intersect_point;
         }
     }
 }
@@ -428,10 +455,23 @@ __global__ void generateGBuffer(
     PathSegment* pathSegments,
     GBufferPixel* gBuffer) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+#if GBUFFER_NORMAL
+    if (idx < num_paths)
+    {
+        gBuffer[idx].normal = shadeableIntersections[idx].surfaceNormal;
+    }
+#elif GBUFFER_POSITION
+    if (idx < num_paths)
+    {
+        gBuffer[idx].position = glm::normalize(shadeableIntersections[idx].position);
+    }
+#else
     if (idx < num_paths)
     {
         gBuffer[idx].t = shadeableIntersections[idx].t;
     }
+#endif
 }
 
 // Add the current iteration's output to the overall image

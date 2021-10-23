@@ -80,6 +80,8 @@ struct PathSegment {
 
 struct GBufferPixel {
     float t;
+    glm::vec3 normal;
+    glm::vec3 position;
 };
 
 // Use with a corresponding PathSegment to do:
@@ -89,4 +91,5 @@ struct ShadeableIntersection {
   float t;
   glm::vec3 surfaceNormal;
   int materialId;
+  glm::vec3 position;
 };
