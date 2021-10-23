@@ -15,17 +15,10 @@ CUDA Denoiser For CUDA Path Tracer
 
 **Qualitative Comparison**
 
+Original (1/2/4/8/16 iter) |  Denoised (1/2/4/8/16 iter)
+:-------------------------:|:-------------------------:
+![1iter](img/1iter.jpg)  |  ![1iterDenoise](img/1iterDenoise.jpg
 
-<table border="0">
- <tr>
-    <td><b style="font-size:30px">Original (1/2/4/8/16 iter)</b></td>
-    <td><b style="font-size:30px">Denoised (1/2/4/8/16 iter)</b></td>
- </tr>
- <tr>
-    <td>![1iter](img/1iter.jpg)</td>
-    <td>![1iterDenoise](img/1iterDenoise.jpg)</td>
- </tr>
-</table>
 
 
 ## Bloopers
