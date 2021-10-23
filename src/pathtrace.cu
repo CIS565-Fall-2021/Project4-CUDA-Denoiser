@@ -21,8 +21,8 @@
 #define DEPTH_OF_FIELD 0
 #define MESH_BOUND_CHECK 1
 #define ANTI_ALIASING 1
-#define GBUFFER_NORMAL 1
-#define GBUFFER_POSITION 0
+#define GBUFFER_NORMAL 0
+#define GBUFFER_POSITION 1
 
 #define ERRORCHECK 1
 
@@ -85,7 +85,7 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
 
-        glm::vec3 normal = (gBuffer[index].normal + glm::vec3(1.0f)) * 0.5f * 256.0f;
+        glm::vec3 normal = (gBuffer[index].normal + glm::vec3(1.0f)) * 0.5f * 255.0f;
 
         pbo[index].w = 0;
         pbo[index].x = normal.x;
@@ -95,7 +95,7 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
 #elif GBUFFER_POSITION
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        glm::vec3 position = gBuffer[index].position * 256.0f;
+        glm::vec3 position = gBuffer[index].position * 255.0f;
 
         pbo[index].w = 0;
         pbo[index].x = position.x;
@@ -105,7 +105,7 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
 #else
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        float timeToIntersect = gBuffer[index].t * 256.0;
+        float timeToIntersect = gBuffer[index].t * 255.0;
 
         pbo[index].w = 0;
         pbo[index].x = timeToIntersect;
