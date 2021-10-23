@@ -1,133 +1,126 @@
-CUDA Path Tracer
+CUDA Denoiser For CUDA Path Tracer
 ================
 
-**University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 3**
+**University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 4**
 
 * Aditya Hota
   * [LinkedIn](https://www.linkedin.com/in/aditya-hota)
-* Tested on: Windows 11, i7-8750H @ 2.20 GHz 20 GB, GTX 1070 eGPU 8 GB (personal laptop)
+* Tested on: Windows 11, i7-8750H @ 2.20 GHz 20 GB, GTX 1070 8 GB
 
 # Overview
-<p align="middle">
-  <img src="./img/COVER_3.png" width="800" />
-</p>
+| Baseline (5000 iterations) | Smoothened with À-Trous (500 iterations) |
+| ---------- | ---------- |
+| ![](./img/denoise/cornell_base_5000.png) | ![](./img/denoise/cornell_filt64_0-138_0-028_0-262_500.png) |
 
-This project involved implementing a path tracer, accelerated on an NVIDIA GPU by parallelizing computations through the CUDA API. Path tracing allows us to develop an accurate rendering of the lighting and material effects of objects in a scene, which rasterization cannot do.
+This project involved implementing a the A-Trous wavelet filtering algorithm into our CUDA path tracers. Because path tracers randomly shoot a ray into the scene per pixel, the images can be rather noisy. Adding denoising helps; however, we cannot simply blur the image to hide the noise. We must instead account for the positions and edges of objects and instead selectively blur parts of the image. That is what the A-Trous algorithm seeks to accomplish.
 
 ## Features
-* Loading of arbitrary object models (in the Wavefront OBJ format)
-* Simulation of refraction with Frensel effects
-* Physically-based depth of field and object focusing
-* Anti-aliasing to smoothen rendered scenes
-* Shading of objects using BSDF evaluation
+* A-Trous filtering on demand per iteration
+* Visualization of geometry buffers (G-buffers) used in A-Trous algorithm
 
-## Performance features
-* Mesh intersection culling using bounding boxes to reduce mesh render times
-* Termination of unnecessary paths using stream compaction
-* Material sorting to allow for more contiguous memory accesses
-* Caching the first bounce
-
+# Performance analysis
+## Denoising Runtime
+The graph below shows how rendering runtime is impacted by the denoising algorithm. For three different scenes, the amount of time taken to render 100 iterations was measured. As can be seen, there is only a slight increase in render time when denoising is added--and this is with denoising being performed after each iterations. Experimental data was collected with filter size 65 and 800x800 resolution as constants.
 <p align="middle">
-  <img src="./img/COVER_3_Annotated.png" width="800" />
+  <img src="./img/denoise/GRAPH_Denoise-Time.png" width="500" />
 </p>
 
-# Feature Showcase
-## Load arbitrary objects
-| Space Shuttle | The Infamous 560 Mario |
-| ---------- | ---------- |
-| ![](./img/PERF_Mesh_Shuttle_600.png) | ![](./img/PERF_Mesh_Mario_500.png) |
+The rendering time difference values are presented in the following chart:
 
-3D meshes in the Wavefront Object format (.OBJ files) can be loaded in through the scene file by specifying the type of element as a `MESH` and then including the path to the scene file. Meshes can use the same materials as defined earlier in the scene file and transformations can be applied too. Meshes essentially get converted into triangle Geom objects, so loading in complex .OBJ files causes the rendering time to increase. However, there is a trick that can improve rendering times, discussed [here](#mesh-intersection-culling).
-
-## Refraction with Fesnel effects
-| IOR 1.2 | IOR 1.8 | IOR 5 |
+| Cornell Ceiling Light | Cornell with Wahoo | Environment |
 | ---------- | ---------- | ---------- |
-| ![](./img/PERF_Refract-1_2_2000.png) | ![](./img/PERF_Refract-1_8_2000.png) | ![](./img/PERF_Refract-5_2000.png) |
+| 543.89 ms | 379.46 ms | 1735.07 ms |
 
-The above images show glass balls with increasing indices of refraction (1.2, 1.8, and 5.0). There is a slight reflection of the light on the top of the balls as well, due to the Frensel effect--the larger the angle between the camera's look vector and the surface normal, the more reflection we see. Refraction is accomplished by probabilistically adding a reflective or refractive effect to the incoming ray.
+In the case of the most complex scene (Environment), it took only about 1.7 more seconds to process all 100 denoising iterations. This is before the fact that denoising will decrease the total number of iterations required to obtain a smooth image. Therefore, we can confidently say that denoising is beneficial, and that lower number of required iterations outweighs the additional runtime per itration.
 
-## Depth of field
-| Focal Distance 3m | Focal Distance 6m |
+## Iterations Required for Smooth Images
+The denoiser helps immensely with smoothing noisy images. Though it is impossible to get a perfect 1:1 recreation of an image using denoising, we can elimiate much of the "particle effect." In the samples below, `F` is the filter size, `c` is the color weight, `n` is the normal weight, and `p` is the position weight.
+
+The first test is with the Cornell Ceiling Light scene. This loads in a reflective sphere in a room with the ceiling being completely lit. This allows iterations of the path tracer to run very quickly. Because there are no complex geometries, we can get an image that smoothens out the noise on the walls and floor, but at 200 iterations we can still see noise on the reflection of the ball. This is because the denoiser does not know about surface normals on reflected surfaces, so the color on the ball is smoothened out. With 500 iterations, we can reduce the position and color weights, leading to less blurring of the ball surface; this better preserves the edges. Because our 1000 iteration baseline image was blurry and with 200 iterations we obtain an even smoother image, our optimization is >80%.
+| Baseline (1000 iterations) | `F`=129, `c`=0.205, `n`=0.020, `p`=1.514m, iter=50 | `F`=65, `c`=0.122, `n`=0.020, `p`=0.437, iter=200 |
+| ---------- | ---------- | ---------- |
+| ![](./img/denoise/cornell_ceiling_base_1000.png) | ![](./img/denoise/cornell_ceiling_filt128_0-205_0-020_1-514_50.png) | ![](./img/denoise/cornell_ceiling_filt64_0-122_0-020_0-437_200.png) |
+
+My next test is using the Cornell with Wahoo scene. This loads in a mesh with many triangles and a glass ball is placed close to the camera. There is also a reflective cube and sphere. Even with just 500 iterations, we get an image that is smoother than the 5000 iteration baseline image. At 200 iterations, we need to keep the filter size small to prevent losing too many details on reflected and refracted rays. However, we see that there is a loss of details on the reflective and refractive surfaces--on the ball, the edges between the walls are less pronounced and through the sphere, the Mario is blurrier.  We achieve an optimization of >90%.
+| Baseline (5000 iterations) | `F`=65, `c`=0.285, `n`=0.030, `p`=0.213m, iter=206 | `F`=65, `c`=0.138, `n`=0.030, `p`=0.262, iter=500 |
+| ---------- | ---------- | ---------- |
+| ![](./img/denoise/cornell_base_5000.png) | ![](./img/denoise/cornell_filt64_0-285_0-030_0-213_206.png) | ![](./img/denoise/cornell_filt64_0-138_0-028_0-262_500.png) |
+
+
+## Impact of Resolution
+Image resolution has a major impact on the rumtime of the render, for both the path tracing and denoising kernels. Path tracing takes longer because there are more rays that need to be shot from the camera into the scene, so its positive correlation with resolution is expected.
+
+Denoising also takes longer because there are more pixels to denoise. The current denoising algorithm computes a convolution for each image pixel, before weighting the convolution by the proximity to an edge. The first graph below shows how the total rendering time for 100 iterations increases with resolution. The second graph shows how much time denoising adds at each resolution. Experimental data was collected with filter size 65 as a constant, in the Cornell with Wahoo scene.
+
+| Runtime of Complete Workflow | Runtime of Denoiser |
 | ---------- | ---------- |
-| ![](./img/PERF_DOF-close_3000.png) | ![](./img/PERF_DOF-far_3000.png) |
+| ![](./img/denoise/GRAPH_Resolution.png) | ![](./img/denoise/GRAPH_Resolution-Denoise.png) |
 
-These images show the depth of field effect, where a focal radius and length can be simulated. This allows the camera to "focus" on an object, just like in real life, and is accomplished by jittering the rays within an aperature. Objects out of focus are blurred by moving the ray starting point to somewhere on a circular disk with the camera origin at the center. The picture above on the left shows a virtual camera with lens radius 0.5mm and focal distance 6m; the one on the right has lens radius 0.5mm and focal distance 3m; as we can see, increasing the focal length allows us to focus on objects farther away.
+The time taken to denoise grows exponentially, which makes sense because the number of pixels in the image grows exponentially too.
 
-## Anti-aliasing
-| Anti-Aliasing ON | Anti-Aliasing OFF |
+## A-Trous Filter Size
+The impact of varying the filter size was also measured. This is important because depending on the scene, increasing the filter size will allow low-frequency scenes to be rendered with fewer iterations. If there are fewer color variations from pixel to pixel, it is advantageous to use a larger filter size so more blurring can occur over an area. This reduces the need for a less noisy starting image.
+
+Having a larger filter means that the more A-Trous iterations will be needed. In my implementation, I take the `logbase2` of the filter size as the number of iterations, and scale the Gaussian filter width by 2 to the power of the iteration number. Therefore, it is expected that the rendering time will increase as the filter size increases. The results of this testing are shown below. Experimental data was collected with 800 x 800 resolution as a constant, in the Cornell with Wahoo scene.
+
+<p align="middle">
+  <img src="./img/denoise/GRAPH_Filter-Size.png" width="500" />
+</p>
+
+There appears to be an exponential increase in denoising time as the filter size increases, which is expected because the number of iterations of A-Trous increases exponentially with filter size. However, there is not a very large increase in runtime between a size of 5x5, 17x17 and 33x33, so somewhere in this range might be the "sweet spot." Unexpectedly, there is a drop in denoising time when a filter size of 128 is used. I am not sure why this is the case, since the same number and size of kernels--and therefore warps--are launched over the A-Trous iterations. My best guess is that memory reads are being coalesced better when reading from neighbors, leading to better access times from global memory.
+
+## Visual Impact of Filter Size
+When geometries are simple, like in the Cornell Ceiling Light, increasing the filter size helps reduce noise to an extent, and any further increases do not have a perceptible impact. Therefore, it is not necessarily better to keep increasing the filter size, as we can take advantage of the slightly reduced runtime of a smaller filter. With filter size 33, we can see the local regions of blurring, leaving many small circles on diffuse surfaces. With filter size 65 and above, these artifacts are gone and we don't see any difference as we increase the size further.
+| `F`=33, `c`=0.122, `n`=0.020, `p`=0.437, iter=200 | `F`=65, `c`=0.122, `n`=0.020, `p`=0.437, iter=200 | `F`=129, `c`=0.122, `n`=0.020, `p`=0.437, iter=200 |
+| ---------- | ---------- | ---------- |
+| ![](./img/denoise/cornell_ceiling_filt32_0-122_0-020_0-437_200.png) | ![](./img/denoise/cornell_ceiling_filt64_0-122_0-020_0-437_200.png) | ![](./img/denoise/cornell_ceiling_filt128_0-122_0-020_0-437_200.png) |
+
+In the Cornell with Wahoo scene, we see negative impacts of having too large of a filter. With a filter size of 33, we see the same local blurred circle regions but with a size of 65, we no longer see these circles despite maintaining details in the image. However, once increasing the filter size to 129, we lose details in the circle: Mario's chest looks completely shadowed and the reflectivity at the edge of the pink circle is less prominent. Here, increasing the filter size had a negative impact, compared to no impact in the previous example.
+| `F`=33, `c`=0.138, `n`=0.030, `p`=0.262, iter=500 | `F`=65, `c`=0.138, `n`=0.030, `p`=0.262, iter=500 | `F`=129, `c`=0.138, `n`=0.030, `p`=0.262, iter=500 |
+| ---------- | ---------- | ---------- |
+| ![](./img/denoise/cornell_filt32_0-138_0-028_0-262_500.png) | ![](./img/denoise/cornell_filt64_0-138_0-028_0-262_500.png) | ![](./img/denoise/cornell_filt128_0-138_0-028_0-262_500.png) |
+
+## Effectiveness on Various Materials
+There are three types of material supported in this project: diffuse, specular, and refractive. Diffuse materials are handled the best, because they do not have to reflect as many rays. Since blurring does not take into account the geometric surface properties of the previous bounce, the filter tends to undesirably blur out reflective and refractive material surfaces.
+
+### Diffuse
+Diffuse materials are handled well. As can be seen in the image on the left below with no smoothing, there is still a lot of noise after 1000 iterations. But on the right, with just 200 iterations, the walls look completely smoothened out with no noise at all. The only drawback is that edges look aliased. Images are from the Cornell Ceiling Light scene.
+| Baseline (1000 iterations) | `F`=65, `c`=0.122, `n`=0.020, `p`=0.437, iter=200 |
 | ---------- | ---------- |
-| ![](./img/PERF_AA-on_zoom_1000.jpg) | ![](./img/PERF_AA-off_zoom_1000.jpg) |
+| ![](./img/denoise/material_diffuse_off.png) | ![](./img/denoise/material_diffuse_on.png) |
 
-On the left is with anti-aliasing on, and on the right is with anti-aliasing off. Anti-aliasing introduces some randomness into the direction of the ray emitted from the camera. This means that for a given pixel, the color seen will be a very localized but uniform average of the pixels around it. In the image to the right, the reflection of the edge between the red and white wall appears jagged, but the edge is a lot smoother with anti-aliasing. Anti-aliasing essentially applies a low-pass smoothing filter to reduce the effect of sudden changes in geometry.
+### Reflective
+Reflective materials are handled okay but need higher numbers of iterations to preserve the image. When a ray from a diffuse surface reflects off the reflective surface, we cannot simply perform A-Trous on the reflective surface since we have no knowledge of the surface geometry of where the ray came from. The images below show the Cornell with Wahoo scene, in which the diffuse wall is smoothened very well but the specular surface of the reflective ball is rough. There is some smoothening compared to the original image, but increasing the filter size or the color weight simply causes us to lose the reflected wall edges we see on the ball. This is the best that can be done, even with 500 iterations.
+| Baseline (5000 iterations) | `F`=65, `c`=0.138, `n`=0.030, `p`=0.262, iter=500 |
+| ---------- | ---------- |
+| ![](./img/denoise/material_reflective_off.png) | ![](./img/denoise/material_reflective_on.png) |
 
-## BSDF evaluation
-<p align="middle">
-  <img src="./img/V1_0_basic_999.png" width="600" />
-</p>
-The picture above shows a purely specular object reflecting the objects and light around it. Depending on the material properties (reflectivity, refractivity), light rays can be bounced off an object as they would be in real life. In a typical object, light from all angles can bounce off an object before reaching the viewer; BSDF reverses this by randomly choosing a direction to bounce a ray in hopes that it will eventually hit a light source. Furthermore, in objects that can refract light, some rays can be transmitted inside. 
+### Refractive
+Refraction also causes a loss of sharpness for the same reason as reflection. The lack of geometry is a problem, as the smoothing causes shadows and sharp features behind refractive objects to be lost. In the Cornell with Wahoo scene, we lose a lot of detail on Mario's face even with 500 iterations.
+| Baseline (5000 iterations) | `F`=65, `c`=0.138, `n`=0.030, `p`=0.262, iter=500 |
+| ---------- | ---------- |
+| ![](./img/denoise/material_refractive_off.png) | ![](./img/denoise/material_refractive_on.png) |
 
-# Performance improvements
-## Mesh intersection culling
-<p align="middle">
-  <img src="./img/DEBUG_V2_3_bounding_box_600.png" width="600" />
-</p>
-The image above shows a bounding box established around a mesh. The naive method for testing intersections involves having each ray check whether it intersects every geometry in the scene. However, meshes contain lots of triangles and this can slow down the testing process. Not all rays will intersect with a triangle in a mesh, so these intersections do not need to be tested; threads that would previously test for all these intersections can be reused to perform other computations and speed up rendering. Intersection culling is achieved by establishing an axis-aligned bounding box (AABB) around the mesh and seeing if a ray intersects with the box (using the provided box intersection formula with a scaled and transformed cube geometry to fit the BB shape). If the ray does not intersect with the box, none of the mesh's triangles are checked for intersection; however, if the ray does intersect the box, the triangles are checked. This saves a lot of unnecessary computation.
-<br>
-<p align="middle">
-  <img src="./img/GRAPH_Mesh-Culling.png" width="800" />
-</p>
-The graph above shows the impact of mesh intersection culling. There is a clear disparity in between loading times when culling is used; as the geometry becomes more complex, the difference in execution time increases. This shows that mesh culling will be particularly useful when rendering large mesh files because the number of geometries to test for intersections is much smaller. In the future, when used with hierarchical structures, the intersection can be further localized so that only particular regions of the mesh have to be tested.
+## Effectiveness of Scene
+As seen in the sample images of the Cornell Ceiling Light and Cornell with Wahoo scenes in the "Iterations Required for Smooth Images" section above, the ceiling light scene performs better because there are less details to lose. The wavelet filter performs best when there are few reflective and refractive objects that would occlude the camera from seeing the geometry of the previous ray segment. When all surface geometric data can be known from the camera's POV, A-Trous performs very well.
 
-## Terminate rays using stream compaction
-<p align="middle">
-  <img src="./img/GRAPH_Stream-Compaction.png" width="800" />
-</p>
-When a ray has bounced enough times without reaching a light or has turned black, any subsequent bounces will not result in any color being added to the render. Therefore, these rays can be terminated from the pool. This prevents kernels from being started for rays that will have no effect on the final image. Stream compaction has a significant impact on the rendering performance, as the number of rays that need to be checked decreases with each bounce. At the end of the iteration, we can see see that there are fewer rays compared to if we don't remove any. Furthermore, as we increase the maximum ray bounce depth, we see more rays being terminated because they reach termination conditions. In the open scene, it is easier for a ray to bounce out of the scene and turn black, so we see an even smaller number of remaining rays. Fewer rays means fewer threads and more useful computation on the GPU.
+# Debug Images
+| Surface Positions |
+| ---------- |
+| ![](./img/denoise/debug_pos.png) |
 
-## Sorting materials
-<p align="middle">
-  <img src="./img/GRAPH_Material-Sorting.png" width="800" />
-</p>
-Sorting materials allows geometries with the same material properties to be grouped together before BSDF computation executes. When materials are grouped together, it is more likely that BSDF computations with the same material properties will run in the same warp. This will allow for threads in a warp to finish computation at the same time, rather than having threads of one material wait for threads of another. Because we are not doing explicit alignment of materials between thread blocks, we do not see a large speedup. However, there is a noticeable effect on the BSDF kernel run times, especially for larger max ray depths.
+| Surface Normals |
+| ---------- |
+| ![](./img/denoise/debug_nor.png) |
 
-## First bounce caching
-<p align="middle">
-  <img src="./img/GRAPH_Bounce-Caching.png" width="800" />
-</p>
-When anti-aliasing is disabled, the first bounce for each pixel from the camera into the scene will be the same across iterations. Therefore, we can compute the first bounces just once, and use this cached data in subsequent iterations. We see the effects of this in the graph above: when our max ray depth is 1 (meaning we have at most one bounce), we spend virtually no time running the intersection logic, since we just reuse the cached data from the first iteration. Here, the first intersection kernels takes 168350 us to compute, but any subsequent intersection computation kernels only take on average 255 us. The time saved with the first bounce also helps reduce the average total kernel execution time when we have higher max ray depths. Because anti-aliasing makes the first ray direction non-deterministic, we cannot use first-bounce caching with anti-aliasing, or else we end up with a blurry image.
+| Updated GUI (note toggles for position and normal G-buffers) |
+| ---------- |
+| ![](./img/denoise/debug_gui.png) |
 
-# Miscelaneous notes
-* Meshes must be placed after any objects in the scene file and their numbering must continue from the numbering scheme used for any objects.
-* Despite decrementing the number of remaining bounces for rays on each bounce, the check for whether a ray has 0 remaining bounces did not seem to work with `thrust::remove_if`. Therefore, I am checking whether the color is 0 (meaning any future bounces would just color pixels black).
-
-## Flags
+# Flags
 The following flags can be used to toggle various options.
-* `INSTRUMENT` in `pathtrace.cu` enables kernel timing measurements and console printing
-* `STREAM_COMPACTION` in `pathtrace.cu` enables stream compaction
-* `MATERIAL_SORT` in `pathtrace.cu` enables material sorting
-* `FIRST_BOUNCE_CACHE` in `pathtrace.cu` enables first bounce caching
-* `ANTI_ALIASING` in `pathtrace.cu` enables anti-aliasing
-* `INSTRUMENT` in `pathtrace.cu` enables DoF. Use `R` and `T` to increase/decrease lens radius, and `F` and `G` to increase/decrease focal distance.
-* `MESH_CULL` in `scene.h` enables OBJ mesh intersection culling
+* `INSTRUMENT_FILTER` in `main.cpp` enables total path tracing timing measurements (path trace + denoise if enabled) and console printing
 
 # References
-* Loading in .OBJ files using TinyOBJLoader
-  * https://github.com/tinyobjloader/tinyobjloader#example-code-new-object-oriented-api
-* Trees and Nature .OBJ file used in header image
-  * 3D Low Poly Trees Grass and Rocks Lite by Just Create
-  * https://www.turbosquid.com/3d-models/3d-assets-tree-grass-rocks-1498368
-* Simulating Depth of Field
-  * PBRT 6.2.3, 13.6.1
-* Simulating Anti Aliasing
-  * Ray Tracing in One Weekend, 7.2
-* Refraction
-  * Ray Tracing in One Weekend, 10.5
-
-# Bloopers
-| Refraction or Recursion |
-| ---------- |
-| ![](./img/V2_1_bloop_refract_.png) |
-
-| When `remove_if` eats rays for lunch |
-| ---------- |
-| ![](./img/V1_0_bloop_remove_if.png) |
+* Dammertz et. al. Edge-Avoiding À-Trous Wavelet Transform for fast Global Illumination Filtering
+  * https://jo.dreggn.org/home/2010_atrous.pdf
