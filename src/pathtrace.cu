@@ -14,25 +14,18 @@
 #include "intersections.h"
 #include "interactions.h"
 
-#define ERRORCHECK 1
+#define ERRORCHECK 0
 
 /*******************************************************************
 * GBUFFER_RENDER 0 for gbufferToPBO to render intersects as color
 * GBUFFER_RENDER 1 for gbufferToPBO to render positions as color
 * GBUFFER_RENDER 2 for gbufferToPBO to render normals as color
 *******************************************************************/
-#define GBUFFER_RENDER 1
+#define GBUFFER_RENDER 0
 
 /*******************************************************************
-* STEP  for offsetting gaussian weights
-*******************************************************************/
-#define STEP  1 << 1
-
-/*******************************************************************
-* FILTER_LENGTH is 1D length of filtered square
 * BLOCK_LENGTH  is 1D lenght of blocks per grid
 *******************************************************************/
-#define FILTER_LENGTH 5 // should not be changed from 5
 #define BLOCK_LENGTH  8
 // TODO: update this to be variable length given FILTER_LENGTH
 const float gaussian[25] = {
@@ -335,15 +328,15 @@ __global__ void generateGBuffer (
     PathSegment* pathSegments,
     GBufferPixel* gBuffer) 
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < num_paths)
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < num_paths)
     {
-        ShadeableIntersection& i = shadeableIntersections[idx];
-        Ray&                   r = pathSegments[idx].ray;
+        ShadeableIntersection& i = shadeableIntersections[index];
+        Ray&                   r = pathSegments[index].ray;
 
-        gBuffer[idx].t   = i.t;
-        gBuffer[idx].pos = r.origin + i.t * r.direction;
-        gBuffer[idx].nor = i.surfaceNormal;
+        gBuffer[index].t   = i.t;
+        gBuffer[index].pos = r.origin + i.t * r.direction;
+        gBuffer[index].nor = i.surfaceNormal;
 
     }
 }
@@ -361,7 +354,7 @@ __global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterati
 
     //showImage(uchar4 * pbo, int iter, bool ui_denoise)
 }
-
+    
 /**
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
@@ -469,6 +462,7 @@ int pathtrace(int frame, int iter, int lastIter) {
             pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
 
     checkCUDAError("pathtrace");
+    cudaDeviceSynchronize();
     return ret;
 }
 
@@ -527,13 +521,15 @@ __global__ void denoiseIter(
 
         for (int j = -2; j <= 2; j++) {
 
-            int relY = glm::clamp(y + j * step, 0, cam.resolution.y);
-            //if (relY < 0 || relY >= cam.resolution.y) continue;
+            //int relY = glm::clamp(y + j * step, 0, cam.resolution.y);
+            int relY = y + j * step; 
+            if (relY < 0 || relY >= cam.resolution.y) continue;
 
             for (int i = -2; i <= 2; i++) {
 
-                int relX = glm::clamp(x + i * step, 0, cam.resolution.x);
-                //if (relX < 0 || relX >= cam.resolution.x) continue;
+                //int relX = glm::clamp(x + i * step, 0, cam.resolution.x);
+                int relX = x + i * step;
+                if (relX < 0 || relX >= cam.resolution.x) continue;
 
                 int relIndex = relX + cam.resolution.x * relY;
 
@@ -542,22 +538,22 @@ __global__ void denoiseIter(
                 colTemp = image[relIndex];
                 t = col - colTemp;
                 dist2 = glm::dot(t, t);
-                float c_w = glm::min(std::exp(-(dist2) / c_phi), 1.f);
+                float c_w = glm::min(std::exp(-(dist2) / (c_phi + EPSILON)), 1.f);
 
                 // Position weighting  
                 t = pos - gBuffer[relIndex].pos;
                 dist2 = glm::dot(t, t);
-                float p_w = glm::min(std::exp(-(dist2) / p_phi), 1.f);
+                float p_w = glm::min(std::exp(-(dist2) / (p_phi + EPSILON)), 1.f);
 
                 // Normal weighting 
                 t = nor - gBuffer[relIndex].nor;
-                dist2 = glm::max(glm::dot(t, t) / (step * step), 0.f);
-                float n_w = glm::min(std::exp(-(dist2) / n_phi), 1.f);
+                dist2 = glm::max(glm::dot(t, t), 0.f);
+                float n_w = glm::min(std::exp(-(dist2) / (n_phi + EPSILON)), 1.f);
 
                 //float weight = c_w * c_w * p_w * p_w * n_w * n_w;
                 float weight =  c_w * p_w * n_w;
                 float influence = weight * gaussian[((i + 2) + 5 * (j + 2))];
-                sumColor  += colTemp * influence;
+                sumColor  += (colTemp * influence);
                 sumWeight += influence;
             }
         }
@@ -569,6 +565,8 @@ __global__ void denoiseIter(
 
 void denoise(const int filterSize, const float cPhi, const float pPhi, const float nPhi) {
 
+    if (filterSize < 25) return; 
+    
     const Camera& cam = hst_scene->state.camera;
 
     const dim3 blockSize2d(BLOCK_LENGTH, BLOCK_LENGTH);
@@ -578,8 +576,9 @@ void denoise(const int filterSize, const float cPhi, const float pPhi, const flo
 
     cudaMemcpy(dev_imageDenoiseDup, dev_image, cam.resolution.x * cam.resolution.y * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
 
-    for (int step = 1; step <= filterSize; step <<= 1) {
-        denoiseIter << <blocksPerGrid2d, blockSize2d >> > (cam, step, cPhi, pPhi, nPhi, dev_gaussian, dev_imageDenoise, dev_imageDenoiseDup, dev_gBuffer);
+    for (int step = 1; step <= std::floor(std::sqrt(filterSize)); step++) {
+        denoiseIter << <blocksPerGrid2d, blockSize2d >> > (cam, 1 << step, cPhi, pPhi, nPhi, dev_gaussian, dev_imageDenoise, dev_imageDenoiseDup, dev_gBuffer);
         std::swap(dev_imageDenoise, dev_imageDenoiseDup);
     }
+    cudaDeviceSynchronize(); 
 }   

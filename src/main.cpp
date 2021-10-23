@@ -6,6 +6,13 @@
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
 
+/*******************************************************************
+* TIMER 0 for no timer
+* TIMER 1 for timing path tracer and denoise
+*******************************************************************/
+#define TIMER 1
+
+
 static std::string startTimeString;
 
 // For camera controls
@@ -25,9 +32,9 @@ int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
 bool ui_denoise = false;
 int ui_filterSize = 80;
-float ui_colorWeight = 0.45f;
-float ui_normalWeight = 0.35f;
-float ui_positionWeight = 0.2f;
+float ui_colorWeight = 8.f;
+float ui_normalWeight = 1.f;
+float ui_positionWeight = 1.5f;
 bool ui_saveAndExit = false;
 
 static bool camchanged = true;
@@ -44,6 +51,17 @@ int iteration;
 
 int width;
 int height;
+
+static float timePT;
+static float timeAT;
+static bool  hasPrinted;
+using StreamCompaction::Common::PerformanceTimer;
+PerformanceTimer& timer()
+{
+    static PerformanceTimer timer;
+    return timer;
+}
+
 
 //-------------------------------
 //-------------MAIN--------------
@@ -144,12 +162,15 @@ void runCuda() {
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
         camchanged = false;
+
+        //std::cout << cam.position.x << " " << cam.position.y << " " << cam.position.z << " " << std::endl;
       }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
 
     if (iteration == 0) {
+        hasPrinted = false;
         pathtraceFree();
         pathtraceInit(scene);
     }
@@ -163,11 +184,41 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
+#if TIMER
+        // Start Timer
+        if (iteration == 1)
+        {
+            timePT = 0.f;
+        }
+        timer().startCpuTimer();
+#endif // TIMER
         num_paths = pathtrace(frame, iteration, iteration == ui_iterations);
+#if TIMER
+        timer().endCpuTimer();
+        timePT += timer().getCpuElapsedTimeForPreviousOperation();
+        if (iteration == ui_iterations) {
+            std::cout << "Path-trace time for " << iteration << " iterations: " << timePT << "ms" << std::endl;
+        }
+#endif // TIMER
     }
 
     if (iteration == ui_iterations) {
-        denoise(ui_filterSize, ui_colorWeight, ui_positionWeight, ui_normalWeight); 
+#if TIMER
+        // Start Timer
+        timeAT = 0.f;
+        if (!hasPrinted) {
+            timer().startCpuTimer();
+        }
+#endif // TIMER
+        denoise(ui_filterSize, ui_colorWeight, ui_positionWeight, ui_normalWeight);
+#if TIMER
+        if (!hasPrinted) {
+            hasPrinted = true;
+            timer().endCpuTimer();
+            timeAT += timer().getCpuElapsedTimeForPreviousOperation();
+            std::cout << "Denoise time for " << iteration << " iterations: " << timeAT << "ms\n\n" << std::endl;
+        }
+#endif // TIMER
     }
 
     if (ui_showGbuffer) {
