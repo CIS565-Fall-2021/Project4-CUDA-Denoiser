@@ -20,10 +20,10 @@ int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
 bool ui_denoise = false;
-int ui_filterSize = 10;
-float ui_colorWeight = 4.5f;
-float ui_normalWeight = 0.35f;
-float ui_positionWeight = 0.2f;
+int ui_filterSize = 142;
+float ui_colorWeight = 1.237f;
+float ui_normalWeight = 0.005f;
+float ui_positionWeight = 0.5f;
 bool ui_saveAndExit = false;
 
 static bool camchanged = true;
@@ -170,15 +170,14 @@ void runCuda() {
     if (ui_showGbuffer) {
         showGBuffer(pbo_dptr);
     }
-    else {
-        if (ui_denoise ) {
-            //printf("denoise");
-            denoise(pbo_dptr, ui_colorWeight, ui_normalWeight, ui_positionWeight, iteration, ui_filterSize);
-        }
-        else {
-            showImage(pbo_dptr, iteration);
-        }
+    else if(ui_denoise){   
+        denoise(pbo_dptr, ui_colorWeight, ui_normalWeight, ui_positionWeight, iteration, ui_filterSize);
+
     }
+    else {
+        showImage(pbo_dptr, iteration);
+    }
+    
 
     // unmap buffer object
     cudaGLUnmapBufferObject(pbo);

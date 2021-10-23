@@ -104,6 +104,8 @@ static Triangle* dev_tris = NULL;
 
 static PathSegment* dev_first_paths = NULL;
 static ShadeableIntersection* dev_first_intersections = NULL;
+static int denoise_count = 0;
+static float sum_time = 0.f;
 
 
 
@@ -555,7 +557,6 @@ __global__ void sendDenoisedToPBO(uchar4* pbo, glm::ivec2 resolution, glm::vec3*
         pbo[index].y = color.y;
         pbo[index].z = color.z;
 
-        //denoisedImg[index] = color;
 
     }
 }
@@ -568,21 +569,34 @@ void denoise(uchar4* pbo, float c_phi, float n_phi, float p_phi, int iteration, 
         (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
         (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
-    float filterRange = glm::log2((filterSize - 1) / 2.f);
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
 
+    float filterRange = glm::log2((filterSize - 1));
     copyImage << < blocksPerGrid2d, blockSize2d >> > (dev_image, dev_denoise_in, cam.resolution, iteration);
     int stepWidth = 1;
     for (int i = 0; i < filterRange; i++) {
-   
         atrousFilterStep << < blocksPerGrid2d, blockSize2d >> > (dev_gBuffer, c_phi, n_phi, p_phi, stepWidth, dev_denoise_in, dev_denoise_out, cam.resolution);
         stepWidth *= 2;
-
         std::swap(dev_denoise_in, dev_denoise_out);
-        
     }
-    
-    
+
     sendDenoisedToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_denoise_in);
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    denoise_count++;
+    sum_time += milliseconds;
+    if (denoise_count == 50) {
+        float avg = sum_time / denoise_count;
+        std::cout << "Denoise: " << avg << std::endl;
+    }
+   // std::cout << "Denoise: " << milliseconds << std::endl;
+    
 }
 
 
