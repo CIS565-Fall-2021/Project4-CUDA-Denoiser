@@ -150,21 +150,26 @@ void runCuda() {
         pathtraceInit(scene);
     }
 
-    //uchar4* pbo_dptr = NULL;
-    //cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
+    uchar4* pbo_dptr = NULL;
+    cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
     if (iteration < ui_iterations) {
-        uchar4* pbo_dptr = NULL;
         iteration++;
-        cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
         // execute the kernel
         int frame = 0;
-        pathtrace(pbo_dptr, frame, iteration);
-
-        // unmap buffer object
-        cudaGLUnmapBufferObject(pbo);
+        pathtrace(frame, iteration);
     }
+
+    if (ui_showGbuffer) {
+        showGBuffer(pbo_dptr);
+    }
+    else {
+        showImage(pbo_dptr, iteration);
+    }
+
+    // unmap buffer object
+    cudaGLUnmapBufferObject(pbo);
 
     if (ui_saveAndExit) {
         saveImage();

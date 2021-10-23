@@ -473,7 +473,7 @@ struct cmpMaterials
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
  */
-void pathtrace(uchar4* pbo, int frame, int iter) {
+void pathtrace(int frame, int iter) {
     const int traceDepth = hst_scene->state.traceDepth;
     const Camera& cam = hst_scene->state.camera;
 
@@ -629,9 +629,6 @@ void pathtrace(uchar4* pbo, int frame, int iter) {
     finalGather << <numBlocksPixels, blockSize1d >> > (pixelcount, dev_image, dev_paths);
 
     ///////////////////////////////////////////////////////////////////////////
-
-    // Send results to OpenGL buffer for rendering
-    sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
 
     // Retrieve image from GPU
     cudaMemcpy(hst_scene->state.image.data(), dev_image,
