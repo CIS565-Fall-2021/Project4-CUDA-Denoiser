@@ -60,3 +60,11 @@ We can also see how the amount of light in the scene impacts the effectiveness o
 | Good Lighting | Poor Lighting |
 |---|---|
 |![](img/goodLighting.png)|![](img/badLighting.png)|
+
+## Bloopers
+
+Incorrect clamp value for position and normals
+
+| Position | Normals |
+|---|---|
+|![](img/positionBlooper.png)|![](img/NormalsBlooper.png)|
