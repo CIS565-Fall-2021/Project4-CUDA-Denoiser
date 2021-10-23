@@ -1,6 +1,7 @@
 #include "main.h"
 #include "preview.h"
 #include <cstring>
+#include <chrono>
 
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
@@ -43,6 +44,8 @@ int iteration;
 
 int width;
 int height;
+
+#define INSTRUMENT_FILTER 0
 
 //-------------------------------
 //-------------MAIN--------------
@@ -101,7 +104,7 @@ int main(int argc, char** argv) {
 }
 
 void saveImage() {
-    float samples = iteration;
+    float samples = (ui_denoise) ? 1 : iteration;
     // output image file
     image img(width, height);
 
@@ -152,6 +155,10 @@ void runCuda() {
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
 
+#if INSTRUMENT_FILTER
+    auto startTime = std::chrono::high_resolution_clock::now();
+#endif
+
     if (iteration == 0) {
         pathtraceFree();
         pathtraceInit(scene);
@@ -183,6 +190,13 @@ void runCuda() {
     {
         showGBuffer(pbo_dptr, ui_viewImgPosNor);
     }
+
+#if INSTRUMENT_FILTER
+    auto stopTime = std::chrono::high_resolution_clock::now();
+    double totalTime = std::chrono::duration_cast<std::chrono::microseconds>(stopTime - startTime).count();
+
+    std::cout << totalTime << std::endl;
+#endif
 
     // unmap buffer object
     cudaGLUnmapBufferObject(pbo);
