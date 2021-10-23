@@ -18,7 +18,7 @@
 
 #define SORT_MATERIAL 1
 #define CACHE_INTERSECTION 0
-#define DEPTH_OF_FIELD 1
+#define DEPTH_OF_FIELD 0
 #define MESH_BOUND_CHECK 1
 #define ANTI_ALIASING 1
 
@@ -592,6 +592,10 @@ void pathtrace(int frame, int iter) {
 
         cudaDeviceSynchronize();
 #endif
+        if (depth == 0) {
+            generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer);
+        }
+
         depth++;
 
         // TODO:
