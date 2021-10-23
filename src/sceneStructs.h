@@ -112,5 +112,5 @@ struct GBufferPixel {
     float t;
     glm::vec3 normal;
     glm::vec3 pos;
-    glm::vec3 color;
 };
+

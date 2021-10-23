@@ -91,7 +91,7 @@ EMITTANCE   0
 CAMERA
 RES         800 800
 FOVY        45
-ITERATIONS  50000
+ITERATIONS  50
 DEPTH       8
 FILE        environment
 EYE         0.0 3 10.5

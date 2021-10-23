@@ -64,23 +64,30 @@ std::string warn;
 int main(int argc, char** argv) {
     startTimeString = currentTimeString();
 
-    if (argc < 3) {
+    if (argc == 2) {
+        const char* sceneFile = argv[1];
+        scene = new Scene(sceneFile);
+    } 
+    else if (argc < 3) {
         printf("Usage: %s SCENEFILE.txt CUSTOMGLTF.gltf\n Try ../scenes/environment.txt ../scenes/Duck.gltf\n", argv[0]);
         return 1;
     }
+    else {
+        const char* sceneFile = argv[1];
+        bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, argv[2]);
+        if (!warn.empty()) {
+            printf("Warn: %s\n", warn.c_str());
+        }
 
-    const char *sceneFile = argv[1];
-    bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, argv[2]);
-    if (!warn.empty()) {
-        printf("Warn: %s\n", warn.c_str());
+        if (!err.empty()) {
+            printf("Err: %s\n", err.c_str());
+        }
+        // Load scene file
+        scene = new Scene(sceneFile);
+        scene->addGltf(model);
     }
 
-    if (!err.empty()) {
-        printf("Err: %s\n", err.c_str());
-    }
-    // Load scene file
-    scene = new Scene(sceneFile);
-    scene->addGltf(model);
+    
 
     // Set up camera stuff from loaded path tracer settings
     iteration = 0;
@@ -182,16 +189,22 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
-        timer().startGpuTimer();
+        //timer().startGpuTimer();
         pathtrace(pbo_dptr, frame, iteration, sortByMaterial, cacheFirstBounce, stochasticAA, depthOfField, boundingVolumeCulling);
-        timer().endGpuTimer();
-        std::cout << "   elapsed time: " << timer().getGpuElapsedTimeForPreviousOperation() << "ms    " << "(CUDA Measured)" << std::endl;
+        //timer().endGpuTimer();
+        //std::cout << "   elapsed time: " << timer().getGpuElapsedTimeForPreviousOperation() << "ms    " << "(CUDA Measured)" << std::endl;
     }
 
     if (ui_showGbuffer) {
-      showGBuffer(pbo_dptr);
+        showGBuffer(pbo_dptr);        
     } else {
       showImage(pbo_dptr, iteration);
+    }
+    if (ui_denoise) {
+        timer().startGpuTimer();
+        denoisePathTrace(pbo_dptr, iteration, ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+        timer().endGpuTimer();
+        std::cout << "   elapsed time: " << timer().getGpuElapsedTimeForPreviousOperation() << "ms    " << "(CUDA Measured)" << std::endl;
     }
 
     // unmap buffer object
