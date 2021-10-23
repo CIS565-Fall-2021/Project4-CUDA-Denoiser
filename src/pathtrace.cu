@@ -563,6 +563,7 @@ __global__ void denoise(GBufferPixel* gBuffer, glm::ivec2 resolution, int step, 
         glm::vec3 pval = gBuffer[index].pos;
         glm::vec3 sum = glm::vec3(0.f);
         float cumWeight = 0.f;
+        #pragma unroll
         for (int i = 0; i < 25; i++) {
             int x2 = glm::clamp(x + offset[i].x * step, 0, resolution.x - 1);
             int y2 = glm::clamp(y + offset[i].y * step, 0, resolution.y - 1);

@@ -13,12 +13,12 @@ CUDA Denoiser For CUDA Path Tracer
 
 ## Introduction
 
-This is a GPU based path tracer with denoising capability. By performing edge aware filtering and denoising, we can dramatically improve image quality with low samples per pixel and reduce the number of samples per pixel required to generate an acceptably smooth image. For the demo scene, we are able to get a smooth image with just 50 iterations.
+This is a GPU based path tracer with denoising capability. By performing edge aware filtering and denoising, we can dramatically improve image quality with low samples per pixel and reduce the number of samples per pixel required to generate an acceptably smooth image. This is based on the paper: Edge-Avoiding À-TrousWavelet Transform for fast Global Illumination Filtering. For the demo scene, we are able to get a smooth image with just 50 iterations.
 
 
 ## Performance Analysis
 
-The path tracer applies denoising after all the iteration has finished since this can be considered as a post processing step. Therefore, the amount of time denoising takes is constant with respect to the number of iterations and can be amortized to 0 as the number of iterations go up. The run time of denoising without optimization is on the order of 10ms. 
+The path tracer applies denoising after all the iteration has finished since this can be considered as a post processing step and it is more efficient. Therefore, the amount of time denoising takes is constant with respect to the number of iterations and can be amortized to 0 as the number of iterations go up. The run time of denoising without optimization is on the order of 10ms. I decided to put all the filter weights and offsets in cuda constant memory which allows for broadcasting and faster access.
 
 Denoising drastically reduces the number of iterations needed to get an acceptably smooth image. For the simple cornell box scene, the number of iteration required roughly decreases from 200 iterations to 20 iterations.
 
@@ -34,14 +34,15 @@ For a constant filter size of 20x20, increasing the resolution increases the den
 
 **Denoising and Filter Size**
 
-For a fixed resolution of 800x800, increasing the filter size increases the denoising runtime. Denoising runtime is sub linear with respect to the filter side length. This also makes sense because we don't sample each pixel in the area defined by the filter. Instead we take limited samples and the larger the filter the sparser the samples.
+For a fixed resolution of 800x800, increasing the filter size increases the denoising runtime. Denoising runtime is sub linear with respect to the filter side length. This also makes sense because we don't sample each pixel in the area defined by the filter. Instead we take limited samples and the larger the filter the sparser the samples. Larger kernel size also produces more blurry images since we are taking weighted averages of pixels of a larger area.
 
 ![filter](img/filtersize.png)
 
 
 **Qualitative Comparison**
 
-As shown below, there is diminishing return on applying denoising as the number of samples per pixel increases.
+As shown below, there is diminishing return on applying denoising as the number of samples per pixel increases. The denoised images from images with fewer samples are slightly more blurry since there are a lot of noise and which requires extra smoothing. There is sometimes 
+a tradeoff between reducing noise and preserving detail. This tradeoff is even more prominent if we are using a purely Gaussian kernel. 
 
 Original (1/2/4/8/16/1000 iter) |  Denoised (1/2/4/8/16/1000 iter)
 :-------------------------:|:-------------------------:
@@ -56,7 +57,7 @@ As shown below, the larger the kernel size, the smoother the image is. However, 
 
 Original |  5x5 Filter | 20x20 Filter | 60x60 Filter | 100x100 Filter
 :-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:
-![0filter](img/0filter.JPG)  |  ![1filter](img/1filter.JPG) | ![20filter](img/20filter.JPG)  |  ![60filter](img/60filter.JPG)  | ![100filter](img/100filter.JPG)
+![0filter](img/0filter.JPG)  |  ![1filter](img/5filter.JPG) | ![20filter](img/20filter.JPG)  |  ![60filter](img/60filter.JPG)  | ![100filter](img/100filter.JPG)
 
 Denoising also performs differently on different scenes. There are several reasons. The first is that different scene has differnt material compositions. The second reason is that scenes with bigger lights usually has less noise since light rays are more likely to terminate at a light source. Denoising also performs better in this case.
 
@@ -70,18 +71,3 @@ Small Light |  Big Light | Lots of Reflection
 
 This image looks like it has been terribly exposed and it is caused by the program not normalziing the ray traced image by the number of iterations.
 
-
-
-
-Loop unrolling
-
-Do deniosing once after certain iterations more efficient doing it multiple times is useless.
-using constant memory
-
-
-iteratively updated offset
-
-position need to divide by 10 cuz not normalized.
-smaller iteration more blurry
-larger kernel more blurry
-There is a tradeoff between detail and noise
