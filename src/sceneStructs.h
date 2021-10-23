@@ -10,6 +10,19 @@
 enum GeomType {
     SPHERE,
     CUBE,
+    TRIANGLE,
+};
+
+struct Point {
+    glm::vec3 pos;
+    glm::vec3 nor;
+    glm::vec2 uv;
+};
+
+struct Triangle {
+    Point pt1;
+    Point pt2;
+    Point pt3;
 };
 
 struct Ray {
@@ -26,6 +39,7 @@ struct Geom {
     glm::mat4 transform;
     glm::mat4 inverseTransform;
     glm::mat4 invTranspose;
+    Triangle triangle;
 };
 
 struct Material {
@@ -60,23 +74,23 @@ struct RenderState {
 };
 
 struct PathSegment {
-	Ray ray;
-	glm::vec3 color;
-	int pixelIndex;
-	int remainingBounces;
+    Ray ray;
+    glm::vec3 color;
+    int pixelIndex;
+    int remainingBounces;
 };
 
 // Use with a corresponding PathSegment to do:
 // 1) color contribution computation
 // 2) BSDF evaluation: generate a new ray
 struct ShadeableIntersection {
-  float t;
-  glm::vec3 surfaceNormal;
-  int materialId;
+    float t;
+    glm::vec3 surfaceNormal;
+    int materialId;
 };
 
-// CHECKITOUT - a simple struct for storing scene geometry information per-pixel.
-// What information might be helpful for guiding a denoising filter?
 struct GBufferPixel {
-  float t;
+    float t;
+    glm::vec3 pos;
+    glm::vec3 nor;
 };

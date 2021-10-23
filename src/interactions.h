@@ -1,14 +1,17 @@
 #pragma once
 
 #include "intersections.h"
+#include "glm/glm.hpp"
+#include "glm/gtx/norm.hpp"
 
+// CHECKITOUT
 /**
  * Computes a cosine-weighted random direction in a hemisphere.
  * Used for diffuse lighting.
  */
 __host__ __device__
 glm::vec3 calculateRandomDirectionInHemisphere(
-        glm::vec3 normal, thrust::default_random_engine &rng) {
+    glm::vec3 normal, thrust::default_random_engine& rng) {
     thrust::uniform_real_distribution<float> u01(0, 1);
 
     float up = sqrt(u01(rng)); // cos(theta)
@@ -23,9 +26,11 @@ glm::vec3 calculateRandomDirectionInHemisphere(
     glm::vec3 directionNotNormal;
     if (abs(normal.x) < SQRT_OF_ONE_THIRD) {
         directionNotNormal = glm::vec3(1, 0, 0);
-    } else if (abs(normal.y) < SQRT_OF_ONE_THIRD) {
+    }
+    else if (abs(normal.y) < SQRT_OF_ONE_THIRD) {
         directionNotNormal = glm::vec3(0, 1, 0);
-    } else {
+    }
+    else {
         directionNotNormal = glm::vec3(0, 0, 1);
     }
 
@@ -41,22 +46,119 @@ glm::vec3 calculateRandomDirectionInHemisphere(
 }
 
 /**
- * Simple ray scattering with diffuse and perfect specular support.
+ * Scatter a ray with some probabilities according to the material properties.
+ * For example, a diffuse surface scatters in a cosine-weighted hemisphere.
+ * A perfect specular surface scatters in the reflected ray direction.
+ * In order to apply multiple effects to one surface, probabilistically choose
+ * between them.
+ *
+ * The visual effect you want is to straight-up add the diffuse and specular
+ * components. You can do this in a few ways. This logic also applies to
+ * combining other types of materias (such as refractive).
+ *
+ * - Always take an even (50/50) split between a each effect (a diffuse bounce
+ *   and a specular bounce), but divide the resulting color of either branch
+ *   by its probability (0.5), to counteract the chance (0.5) of the branch
+ *   being taken.
+ *   - This way is inefficient, but serves as a good starting point - it
+ *     converges slowly, especially for pure-diffuse or pure-specular.
+ * - Pick the split based on the intensity of each material color, and divide
+ *   branch result by that branch's probability (whatever probability you use).
+ *
+ * This method applies its changes to the Ray parameter `ray` in place.
+ * It also modifies the color `color` of the ray in place.
+ *
+ * You may need to change the parameter list for your purposes!
  */
+
 __host__ __device__
-void scatterRay(
-		PathSegment & pathSegment,
-        glm::vec3 intersect,
-        glm::vec3 normal,
-        const Material &m,
-        thrust::default_random_engine &rng) {
-    glm::vec3 newDirection;
-    if (m.hasReflective) {
-        newDirection = glm::reflect(pathSegment.ray.direction, normal);
-    } else {
-        newDirection = calculateRandomDirectionInHemisphere(normal, rng);
+float schlickEquation(float ior, float n, float cos) {
+    float r0 = (n - ior) / (n + ior);
+    r0 = r0 * r0;
+    return r0 + (1.f - r0) * glm::pow(1.f - cos, 5.f);
+}
+
+//__host__ __device__
+//bool refractHelper(Ray& ray, glm::vec3& normal, glm::vec3& refract, float n) {
+//    /*glm::vec3 normalized = glm::normalize(ray.direction);
+//    float dot = glm::dot(normalized, normal);*/
+//
+//    float d = 1.0 - n * n * (1.0 - dot * dot);
+//    if (d >= 1.f) {
+//        refract = n * (normalized - normal * dot) - normal * glm::sqrt(d);
+//        return true;
+//    }
+//    return false;
+//}
+
+__host__ __device__
+void refractScatter(PathSegment& path, const Material& m, glm::vec3 intersect, glm::vec3 normal, thrust::default_random_engine& rng) {
+    thrust::uniform_real_distribution<float> u01(0, 1);
+    float num = u01(rng);
+    float n = 1.f;
+    float probability;
+    glm::vec3 normal2 = normal;
+    float ior = m.indexOfRefraction;
+
+    float cos = glm::clamp(glm::dot(path.ray.direction, normal), -1.f, 1.f);
+
+    if (cos >= 0.f) {
+        normal2 = -normal;
+        n = ior;
+        ior = 1.f;
+    }
+    else {
+        cos = glm::abs(cos);
     }
 
-    pathSegment.ray.direction = newDirection;
-    pathSegment.ray.origin = intersect + (newDirection * 0.0001f);
+    glm::vec3 reflect = glm::normalize(glm::reflect(path.ray.direction, normal2));
+    float x = n / ior;
+    float sin = glm::sqrt(glm::max(0.f, 1.f - cos * cos));
+
+    if (x * sin < 1.f) {
+        //schlick equation
+        probability = schlickEquation(ior, n, cos);
+
+        if (num < probability) {
+            path.ray.direction = reflect;
+        }
+        else {
+            path.ray.direction = glm::refract(path.ray.direction, normal2, x);
+        }
+    }
+    else {
+        path.ray.direction = reflect;
+    }
+
+    path.ray.origin = intersect + (path.ray.direction * 0.01f);
+    path.color *= m.specular.color;
+}
+
+__host__ __device__
+void scatterRay(
+    PathSegment& pathSegment,
+    glm::vec3 intersect,
+    glm::vec3 normal,
+    const Material& m,
+    thrust::default_random_engine& rng) {
+
+    glm::vec3 dir_diffuse = calculateRandomDirectionInHemisphere(normal, rng);
+    glm::vec3 dir_specular = glm::normalize(glm::reflect(pathSegment.ray.direction, normal)); //not sure if have to normalize here
+
+    //specular
+    if (m.hasReflective > 0) {
+        pathSegment.ray.direction = dir_specular;
+        pathSegment.ray.origin = intersect + 0.0001f * normal;
+        pathSegment.color *= m.specular.color;
+    }
+    else if (m.hasRefractive > 0) {
+        //refractive (glass, water, etc)
+        refractScatter(pathSegment, m, intersect, normal, rng);
+    }
+    else {
+        //diffuse
+        pathSegment.ray.direction = dir_diffuse;
+        pathSegment.ray.origin = intersect + 0.0001f * normal;
+        pathSegment.color *= m.color;
+    }
 }
