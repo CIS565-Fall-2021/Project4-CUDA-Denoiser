@@ -29,7 +29,15 @@ able to help us with the weights for edge detection.
 
 # Performance Analysis
 
-TODO: ADD TIMING AND CHARTS
+By timing our regular pathtracer, as well as our denoiser we are able to see how varying different aspects of the pathtracer and denoiser affect runtime. The first thing I looked at was filter size. The filter size of the denoiser increases the time it takes for the denoiser to run. This makes sense because the denoiser will have to consider a larger area of the image each time. The graph is a logarithmic curve due to the fact that the À-Trous algorithm depends on a log2 of the filter size.
+
+![](img/filterGraph.png)
+
+The next thing I looked at was how the resolution impacts performance. We can see that as the resolution increases the runtime also increases. This makes sense because an image with a higher resolution will have more pixels that the pathtracer and denoiser need to look at with each iteration.
+
+![](img/resolutionGraph.png)
+
+I also found that on average the denoiser adds about 4ms to the time it takes to produce the image. It is interesting though that we can produce nice images overall much faster with the denoiser because the number of iterations of the pathtracer can be brought down substantially. It is a bit hard to quanitify this because the number of iterations needed to produce a good image depends heavily on the complexity of the scene.
 
 ## Qualitative Analysis
 
