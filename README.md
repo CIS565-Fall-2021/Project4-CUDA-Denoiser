@@ -41,7 +41,7 @@ For a fixed resolution of 800x800, increasing the filter size increases the deno
 
 **Qualitative Comparison**
 
-As shown below, there is diminishing return on applying denoising as the number of samples per pixel increases. The denoised images from images with fewer samples are slightly more blurry since there are a lot of noise and which requires extra smoothing. There is sometimes 
+As shown below, there is diminishing return on applying denoising as the number of samples per pixel increases. The denoised images from images with fewer samples are slightly more blurry since there are a lot of noise which requires extra smoothing. There is sometimes 
 a tradeoff between reducing noise and preserving detail. This tradeoff is even more prominent if we are using a purely Gaussian kernel. 
 
 Original (1/2/4/8/16/1000 iter) |  Denoised (1/2/4/8/16/1000 iter)
@@ -59,7 +59,7 @@ Original |  5x5 Filter | 20x20 Filter | 60x60 Filter | 100x100 Filter
 :-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:
 ![0filter](img/0filter.JPG)  |  ![1filter](img/5filter.JPG) | ![20filter](img/20filter.JPG)  |  ![60filter](img/60filter.JPG)  | ![100filter](img/100filter.JPG)
 
-Denoising also performs differently on different scenes. There are several reasons. The first is that different scene has differnt material compositions. The second reason is that scenes with bigger lights usually has less noise since light rays are more likely to terminate at a light source. Denoising also performs better in this case.
+Denoising also performs differently on different scenes. There are several reasons. The first is that different scenes have differnt material compositions which may make denoising difficult. The second reason is that scenes with bigger lights usually has less noise since light rays are more likely to terminate at a light source. Denoising also performs better in this case.
 
 Small Light |  Big Light | Lots of Reflection 
 :-------------------------:|:-------------------------:|:-------------------------:
