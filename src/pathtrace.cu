@@ -16,6 +16,14 @@
 
 #define ERRORCHECK 1
 
+
+//Flags for Denoising
+#define SimpleGaussianDenoise 0
+#define ATrous1 1
+#define ATrous2 0
+
+
+
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
 void checkCUDAErrorFn(const char* msg, const char* file, int line) {
@@ -56,29 +64,6 @@ thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int de
 
 //Kernel that writes the image to the OpenGL PBO directly.
 __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
-	int iter, glm::vec3* image) {
-	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
-	int y = (blockIdx.y * blockDim.y) + threadIdx.y;
-
-	if (x < resolution.x && y < resolution.y) {
-		int index = x + (y * resolution.x);
-		glm::vec3 pix = image[index];
-
-		glm::ivec3 color;
-		color.x = glm::clamp((int)((pix.x / iter) * 255.0), 0, 255);
-		color.y = glm::clamp((int)((pix.y / iter) * 255.0), 0, 255);
-		color.z = glm::clamp((int)((pix.z / iter) * 255.0), 0, 255);
-
-		// Each thread writes one pixel location in the texture (textel)
-		pbo[index].w = 0;
-		pbo[index].x = color.x;
-		pbo[index].y = color.y;
-		pbo[index].z = color.z;
-	}
-}
-
-//Kernel that writes the image to the OpenGL PBO directly.
-__global__ void sendImageToPBOCopy(uchar4* pbo, glm::ivec2 resolution,
 	int iter, glm::vec3* image) {
 	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
 	int y = (blockIdx.y * blockDim.y) + threadIdx.y;
@@ -272,35 +257,35 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 
 
 	__global__ void GenerateGaussianBlur(
-		int num_paths, int filterSize,
+		int pixelCount, int stepWidth,
 		float* dev_gausKernel, glm::vec2 *dev_offsetKernel,
 		glm::vec3* dev_colorImage, glm::vec3 *dev_TrousImage,
-		const Camera cam
+		int resolutionX, int resolutionY
 	)
 	{
 
 		int index = blockIdx.x * blockDim.x + threadIdx.x;
 
-		if (index < num_paths)
+		if (index < pixelCount)
 		{
 			glm::vec3 currColor =glm::vec3(0.0f);
 			//glm::vec3 currColor = dev_colorImage[index];
-			for (int i = 0; i < filterSize ; i++)
+			for (int i = 0; i < 25 ; i++)
 			{
-				int index2D_y = index / cam.resolution.x;
-				int index2D_x = (int)(index % cam.resolution.x);
+				int index2D_y = index / resolutionX;
+				int index2D_x = (int)(index % resolutionX);
 
 				int offsetX = dev_offsetKernel[i].x;
 				int offsetY = dev_offsetKernel[i].y;
 
-				int finalValue_X = index2D_x + offsetX;
-				int finalValue_Y = index2D_y + offsetY;
+				int finalValue_X = index2D_x + offsetX * stepWidth;
+				int finalValue_Y = index2D_y + offsetY * stepWidth;
 
-				if (finalValue_X >= 0 && finalValue_X <= (cam.resolution.x - 1) && finalValue_Y >= 0 && finalValue_Y <= (cam.resolution.y - 1))
+				if (finalValue_X >= 0 && finalValue_X <= (resolutionX - 1) && finalValue_Y >= 0 && finalValue_Y <= (resolutionY - 1))
 				{
 					float gausValue = dev_gausKernel[i];
-					int offsetColorIdx = finalValue_Y * cam.resolution.x + finalValue_X;
-					if (offsetColorIdx >= 0 && offsetColorIdx < num_paths)
+					int offsetColorIdx = finalValue_Y * resolutionX + finalValue_X;
+					if (offsetColorIdx >= 0 && offsetColorIdx < pixelCount)
 					{
 						glm::vec3 newColor = dev_colorImage[offsetColorIdx];
 						currColor += newColor * dev_gausKernel[i];
@@ -312,46 +297,22 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 
 	}
 
-	__global__ void GenerateGaussianBlur2(
-		int num_paths, int filterSize,
-		float* dev_gausKernel, glm::vec2* dev_offsetKernel,
-		glm::vec3* dev_colorImage, glm::vec3* dev_TrousImage,
-		const Camera cam
-	)
-	{
-
-		int x = (blockIdx.x * blockDim.x) + threadIdx.x;
-		int y = (blockIdx.y * blockDim.y) + threadIdx.y;
-
-		if (x < cam.resolution.x && y < cam.resolution.y)
-		{
-			int index = x + (y * cam.resolution.x);
-			glm::vec3 color = dev_colorImage[index];
-			glm::vec3 currColor = glm::vec3(0.0f);
-			//glm::vec3 currColor = dev_colorImage[index];
-			for (int i = 0; i < filterSize * filterSize; i++)
-			{
-				int offsetX = dev_offsetKernel[i].x;
-				int offsetY = dev_offsetKernel[i].y;
-				int finalValue_X = x + offsetX;
-				int finalValue_Y = y + offsetY;
-
-				finalValue_X = glm::clamp(finalValue_X, 0, cam.resolution.x - 1);
-				finalValue_Y = glm::clamp(finalValue_Y, 0, cam.resolution.y - 1);
-					float gausValue = dev_gausKernel[i];
-					int offsetColorIdx = finalValue_Y * cam.resolution.x + finalValue_X;
-				/*	if (offsetColorIdx >= 0 && offsetColorIdx < num_paths)
-					{*/
-						glm::vec3 newColor = dev_colorImage[offsetColorIdx];
-						currColor += newColor * dev_gausKernel[i];
-					/*}*/
-				
-			}
-			dev_TrousImage[index] = currColor;
-		}
-
-	}
-
+	/// <summary>
+	/// This A Trous Kernel performs conversion from 1D index to 2D.
+	/// </summary>
+	/// <param name="pixelCount"></param>
+	/// <param name="stepWidth"></param>
+	/// <param name="dev_gausKernel"></param>
+	/// <param name="dev_offsetKernel"></param>
+	/// <param name="dev_colorImage"></param>
+	/// <param name="dev_TrousImage"></param>
+	/// <param name="gbuf"></param>
+	/// <param name="resolutionX"></param>
+	/// <param name="resolutionY"></param>
+	/// <param name="ui_colorWeight"></param>
+	/// <param name="ui_normalWeight"></param>
+	/// <param name="ui_positionWeight"></param>
+	/// <returns></returns>
 	__global__ void GenerateAtrousImage(
 		int pixelCount, int stepWidth,
 		float* dev_gausKernel, glm::vec2* dev_offsetKernel,
@@ -386,10 +347,6 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 
 					int finalValue_X = index2D_x + offsetX * stepWidth; // Final Offset Values
 					int finalValue_Y = index2D_y + offsetY * stepWidth; // Final Offset Values
-
-					//finalValue_X = glm::clamp((float)finalValue_X, 0.0f, (float)resolutionX - 1.0f);
-					//finalValue_Y = glm::clamp((float)finalValue_Y, 0.0f, (float)resolutionY - 1.0f);
-
 					if (finalValue_X >= 0 && finalValue_X <= (resolutionX - 1) && finalValue_Y >= 0 && finalValue_Y <= (resolutionY - 1))
 					{
 						int offsetColorIdx = finalValue_Y * resolutionX + finalValue_X;
@@ -398,19 +355,16 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 							glm::vec3 ctmp = dev_colorImage[offsetColorIdx];
 							glm::vec3 t = cval - ctmp;
 							float dist2 = glm::dot(t, t);
-							float newVal = glm::exp(-1 * (dist2) / cphi);
 							float c_w = glm::min(glm::exp(-(dist2) / cphi), 1.0f);
 
 							glm::vec3 ntmp = gbuf[offsetColorIdx].normal;
 							t = nval - ntmp;
 							dist2 = glm::max(glm::dot(t, t)/ (stepWidth * stepWidth), 0.0f);
-							newVal = glm::exp(-1 * (dist2) / nphi );
 							float n_w = glm::min(glm::exp(-(dist2) / cphi), 1.0f);
 
 							glm::vec3 ptmp = gbuf[offsetColorIdx].position;
 							t = pval - ptmp;
 							dist2 = glm::dot(t, t);
-							newVal = glm::exp(-1 * (dist2) / pphi);
 							float p_w = glm::min(glm::exp(-(dist2) / cphi), 1.0f);
 							float weight = c_w * n_w * p_w;
 
@@ -420,13 +374,35 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 						}
 					}
 				}
-			
+				if (cum_w == 0.f)
+				{
+					dev_TrousImage[index] = cval;
+					return;
+				}
+				
 				dev_TrousImage[index] = sum / cum_w;
+				
 		}
 
 	}
-	
-	__global__ void GenerateAtrousImage2(
+	  
+	/// <summary>
+	/// This A Trous Kernel already starts out with 2D indexes
+	/// </summary>
+	/// <param name="pixelCount"></param>
+	/// <param name="stepWidth"></param>
+	/// <param name="dev_gausKernel"></param>
+	/// <param name="dev_offsetKernel"></param>
+	/// <param name="dev_colorImage"></param>
+	/// <param name="dev_TrousImage"></param>
+	/// <param name="gbuf"></param>
+	/// <param name="resolutionX"></param>
+	/// <param name="resolutionY"></param>
+	/// <param name="ui_colorWeight"></param>
+	/// <param name="ui_normalWeight"></param>
+	/// <param name="ui_positionWeight"></param>
+	/// <returns></returns>
+	__global__ void GenerateAtrousImageGeneral(
 		int pixelCount, int stepWidth,
 		float* dev_gausKernel, glm::vec2* dev_offsetKernel,
 		glm::vec3* dev_colorImage, glm::vec3* dev_TrousImage,
@@ -460,8 +436,6 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 
 					int finalValue_X  = x + offsetX * stepWidth;
 					int finalValue_Y = y + offsetY * stepWidth;
-					//int finalValue_X = glm::clamp ((float)x + (float)offsetX * stepWidth, 0.0f, (float)resolutionX - 1.0f);
-					//int finalValue_Y = glm::clamp((float)y + (float)offsetY * stepWidth, 0.0f, (float)resolutionY - 1.0f);
 					if (finalValue_X >= 0 && finalValue_X <= (resolutionX - 1) && finalValue_Y >= 0 && finalValue_Y <= (resolutionY - 1))
 					{
 						int offsetColorIdx = finalValue_Y * resolutionX + finalValue_X;
@@ -739,12 +713,6 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 		// Assemble this iteration and apply it to the image
 		dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
 		finalGather << <numBlocksPixels, blockSize1d >> > (num_paths, dev_image, dev_paths);
-//		GenerateGaussianBlur2 << <blocksPerGrid2d, blockSize2d >> > (num_paths, ui_filterSize,dev_gausKernel, dev_offsetKernel,
-//			dev_image, dev_TrousImage, cam);
-		//GenerateAtrousImage << <numBlocksPixels, blockSize1d >> > (num_paths, ui_filterSize ,dev_gausKernel, dev_offsetKernel,
-		//	dev_image, dev_TrousImage, dev_gBuffer, cam, ui_colorWeight, ui_normalWeight, ui_positionWeight);
-		// 		GenerateAtrousImage2 << <blocksPerGrid2d, blockSize2d >> > (num_paths, ui_filterSize ,dev_gausKernel, dev_offsetKernel,
-		//dev_image, dev_TrousImage, dev_gBuffer, cam, ui_colorWeight, ui_normalWeight, ui_positionWeight);
 		///////////////////////////////////////////////////////////////////////////
 
 		// CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
@@ -771,7 +739,7 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 		gbufferToPBO_Position <<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
 	}
 
-	__global__ void GeneratePingPongImage(int pixelCount, glm::vec3* devImage, glm::vec3* pingPongImage)
+	__global__ void GeneratePingPongImage(int pixelCount, glm::vec3* devImage, glm::vec3* pingPongImage, int iter)
 	{
 		int index = (blockIdx.x * blockDim.x) + threadIdx.x;
 		if (index < pixelCount)
@@ -781,30 +749,51 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 	}
 
 
-	bool DenoiseImage(int resolutionX, int resolutionY, int iteration, int filterSize, int colWeight, int norWeight, int posWeight)
+	bool DenoiseImage(int resolutionX, int resolutionY, int iteration, int filterSize, float colWeight, float norWeight, float posWeight)
 	{
 		int pixelCount = resolutionX * resolutionY;
 		const int blockSize1d = 128;
 		dim3 numblocksPathSegmentTracing = (pixelCount + blockSize1d - 1) / blockSize1d;
 
-		// 2D block for generating ray from camera
+	
+
 		const dim3 blockSize2d(8, 8);
 		const dim3 blocksPerGrid2d(
 			(resolutionX + blockSize2d.x - 1) / blockSize2d.x,
 			(resolutionY + blockSize2d.y - 1) / blockSize2d.y);
 
 		int stepWidth = 1;
-		int blur_iterations = ceil(glm::log2((filterSize) / 4.f));
-		GeneratePingPongImage << < numblocksPathSegmentTracing, blockSize1d >> > (pixelCount, dev_image, dev_pingPongImage);
+		//int blur_iterations = ceil(glm::log2( (filterSize/25.f) * (filterSize / 25.f)) ); // This wavelet scalling is the correct option though
+		int blur_iterations = ceil(glm::log2( (filterSize* filterSize) / 25.f) ); // This wavelet scalling worked best for me
+		blur_iterations = blur_iterations <= 0 ? 1 : blur_iterations;
+		int colorWeight = colWeight;
+
+		GeneratePingPongImage << < numblocksPathSegmentTracing, blockSize1d >> > (pixelCount, dev_image, dev_pingPongImage, iteration);
 		for (int i = 1; i < blur_iterations; i ++)
 		{
 
+#if SimpleGaussianDenoise
+
+
+			GenerateGaussianBlur <<< numblocksPathSegmentTracing, blockSize1d >> > (pixelCount, stepWidth, dev_gausKernel, dev_offsetKernel,
+				dev_pingPongImage, dev_TrousImage, resolutionX, resolutionY);
+
+#endif
+
+#if ATrous1
 			// 1D block for path tracing
 			GenerateAtrousImage << <numblocksPathSegmentTracing, blockSize1d >> > (pixelCount, stepWidth, dev_gausKernel, dev_offsetKernel,
+				dev_pingPongImage, dev_TrousImage, dev_gBuffer, resolutionX, resolutionY, colorWeight, norWeight, posWeight);
+#endif
+
+
+#if ATrous2
+			GenerateAtrousImage2 << <blocksPerGrid2d, blockSize2d >> > (pixelCount, i,dev_gausKernel, dev_offsetKernel,
 				dev_pingPongImage, dev_TrousImage, dev_gBuffer, resolutionX, resolutionY, colWeight, norWeight, posWeight);
+#endif
+
 			stepWidth *= 2;
-			//GenerateAtrousImage2 << <blocksPerGrid2d, blockSize2d >> > (pixelCount, i,dev_gausKernel, dev_offsetKernel,
-			//	dev_pingPongImage, dev_TrousImage, dev_gBuffer, resolutionX, resolutionY, colWeight, norWeight, posWeight);
+			colorWeight /= 2;
 			swap(dev_pingPongImage, dev_TrousImage);
 		}
 		swap(dev_pingPongImage, dev_TrousImage); // Getting the data back to dev_TrousImage
@@ -832,5 +821,5 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
 			(cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
 		// Send results to OpenGL buffer for rendering
-		sendImageToPBOCopy << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_TrousImage);
+		sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_TrousImage);
 	}
