@@ -6,12 +6,19 @@
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
 
+#include "tiny_gltf.h"
+
 static std::string startTimeString;
 
 // For camera controls
 static bool leftMousePressed = false;
 static bool rightMousePressed = false;
 static bool middleMousePressed = false;
+static bool sortByMaterial = false;
+static bool cacheFirstBounce = false;
+static bool stochasticAA = false;
+static bool depthOfField = false;
+static bool boundingVolumeCulling = false;
 static double lastX;
 static double lastY;
 
@@ -45,6 +52,11 @@ int iteration;
 int width;
 int height;
 
+
+tinygltf::Model model;
+tinygltf::TinyGLTF loader;
+std::string err;
+std::string warn;
 //-------------------------------
 //-------------MAIN--------------
 //-------------------------------
@@ -52,15 +64,30 @@ int height;
 int main(int argc, char** argv) {
     startTimeString = currentTimeString();
 
-    if (argc < 2) {
-        printf("Usage: %s SCENEFILE.txt\n", argv[0]);
+    if (argc == 2) {
+        const char* sceneFile = argv[1];
+        scene = new Scene(sceneFile);
+    } 
+    else if (argc < 3) {
+        printf("Usage: %s SCENEFILE.txt CUSTOMGLTF.gltf\n Try ../scenes/environment.txt ../scenes/Duck.gltf\n", argv[0]);
         return 1;
     }
+    else {
+        const char* sceneFile = argv[1];
+        bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, argv[2]);
+        if (!warn.empty()) {
+            printf("Warn: %s\n", warn.c_str());
+        }
 
-    const char *sceneFile = argv[1];
+        if (!err.empty()) {
+            printf("Err: %s\n", err.c_str());
+        }
+        // Load scene file
+        scene = new Scene(sceneFile);
+        scene->addGltf(model);
+    }
 
-    // Load scene file
-    scene = new Scene(sceneFile);
+    
 
     // Set up camera stuff from loaded path tracer settings
     iteration = 0;
@@ -162,13 +189,22 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
+        //timer().startGpuTimer();
+        pathtrace(pbo_dptr, frame, iteration, sortByMaterial, cacheFirstBounce, stochasticAA, depthOfField, boundingVolumeCulling);
+        //timer().endGpuTimer();
+        //std::cout << "   elapsed time: " << timer().getGpuElapsedTimeForPreviousOperation() << "ms    " << "(CUDA Measured)" << std::endl;
     }
 
     if (ui_showGbuffer) {
-      showGBuffer(pbo_dptr);
+        showGBuffer(pbo_dptr);        
     } else {
       showImage(pbo_dptr, iteration);
+    }
+    if (ui_denoise) {
+        timer().startGpuTimer();
+        denoisePathTrace(pbo_dptr, iteration, ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+        timer().endGpuTimer();
+        std::cout << "   elapsed time: " << timer().getGpuElapsedTimeForPreviousOperation() << "ms    " << "(CUDA Measured)" << std::endl;
     }
 
     // unmap buffer object
@@ -184,20 +220,40 @@ void runCuda() {
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (action == GLFW_PRESS) {
-      switch (key) {
-      case GLFW_KEY_ESCAPE:
-        saveImage();
-        glfwSetWindowShouldClose(window, GL_TRUE);
-        break;
-      case GLFW_KEY_S:
-        saveImage();
-        break;
-      case GLFW_KEY_SPACE:
-        camchanged = true;
-        renderState = &scene->state;
-        Camera &cam = renderState->camera;
-        cam.lookAt = ogLookAt;
-        break;
+        switch (key) {
+            case GLFW_KEY_ESCAPE:
+                saveImage();
+                glfwSetWindowShouldClose(window, GL_TRUE);
+                break;
+            case GLFW_KEY_S:
+                saveImage();
+                break;
+            case GLFW_KEY_1:
+                sortByMaterial = !sortByMaterial;
+                cout << "Sort by Material " << (sortByMaterial ? "is On" : "is Off") << endl;
+                break;
+            case GLFW_KEY_2:
+                cacheFirstBounce = !cacheFirstBounce;
+                cout << "Cache First Bounce " << (cacheFirstBounce ? "is On" : "is Off") << endl;
+                break;
+            case GLFW_KEY_3:
+                stochasticAA = !stochasticAA;
+                cout << "Stochastic Sampled Anti-Aliasing " << (stochasticAA ? "is On" : "is Off") << endl;
+                break;
+            case GLFW_KEY_4:
+                depthOfField = !depthOfField;
+                cout << "Depth of Field " << (depthOfField ? "is On" : "is Off") << endl;
+                break;
+            case GLFW_KEY_5:
+                boundingVolumeCulling = !boundingVolumeCulling;
+                cout << "Bounding Volume Intersection Culling " << (boundingVolumeCulling ? "is On" : "is Off") << endl;
+                break;
+            case GLFW_KEY_SPACE:
+                camchanged = true;
+                renderState = &scene->state;
+                Camera &cam = renderState->camera;
+                cam.lookAt = ogLookAt;
+                break;
       }
     }
 }
