@@ -8,3 +8,4 @@ void pathtraceFree();
 void pathtrace(int frame, int iteration);
 void showGBuffer(uchar4 *pbo);
 void showImage(uchar4 *pbo, int iter);
+void showDenoised(uchar4* pbo, int iter, int filterSize, float c_phi, float n_phi, float p_phi);

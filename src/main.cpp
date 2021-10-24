@@ -6,6 +6,10 @@
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
 
+#define LOADOBJ 0
+
+
+
 static std::string startTimeString;
 
 // For camera controls
@@ -60,7 +64,12 @@ int main(int argc, char** argv) {
     const char *sceneFile = argv[1];
 
     // Load scene file
+#if LOADOBJ
+    scene = new Scene(sceneFile, "../scenes/obj/bunny.obj");
+    scene->makeOctree();
+#else
     scene = new Scene(sceneFile);
+#endif
 
     // Set up camera stuff from loaded path tracer settings
     iteration = 0;
@@ -162,13 +171,19 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
+
         pathtrace(frame, iteration);
     }
 
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr);
     } else {
-      showImage(pbo_dptr, iteration);
+        if (ui_denoise) {
+            showDenoised(pbo_dptr, iteration, ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+        }
+        else {
+            showImage(pbo_dptr, iteration);
+        }
     }
 
     // unmap buffer object
