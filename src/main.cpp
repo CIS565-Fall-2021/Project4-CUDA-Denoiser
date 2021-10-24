@@ -5,7 +5,7 @@
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
-
+#include "common.h"
 static std::string startTimeString;
 
 // For camera controls
@@ -29,6 +29,7 @@ float ui_colorWeight = 0.45f;
 float ui_normalWeight = 0.35f;
 float ui_positionWeight = 0.2f;
 bool ui_saveAndExit = false;
+bool imageDenoised = false;
 
 static bool camchanged = true;
 static float dtheta = 0, dphi = 0;
@@ -45,6 +46,44 @@ int iteration;
 int width;
 int height;
 
+static float timePT;
+static float timeAT;
+static bool  hasPrinted;
+using StreamCompaction::Common::PerformanceTimer;
+#define TIMER 1
+
+PerformanceTimer& timer()
+{
+    static PerformanceTimer timer;
+    return timer;
+}
+
+void FilterCreation(int filter_size, float *kernel)
+{
+    // initialising standard deviation to 1.0
+    float sigma = 1.0;
+    float r, s = 2.0 * sigma * sigma;
+    // sum is for normalization
+    float sum = 0.0;
+    int itr = 0;
+    // generating filter_sizexfilter_size kernel
+    for (int x = -filter_size/2; x <= filter_size/2; x++) {
+        for (int y = -filter_size/2; y <= filter_size/2; y++) {
+            r =  x * x + y * y ;
+            kernel[itr] = (glm::exp(-(r) / s)) / (PI * s);
+            sum += kernel[itr];
+            itr++;
+        }
+    }
+
+    // normalising the Kernel
+    for (int i = 0; i < filter_size * filter_size; ++i)
+    {
+        kernel[i] /= sum;
+    }
+}
+
+
 //-------------------------------
 //-------------MAIN--------------
 //-------------------------------
@@ -56,7 +95,6 @@ int main(int argc, char** argv) {
         printf("Usage: %s SCENEFILE.txt\n", argv[0]);
         return 1;
     }
-
     const char *sceneFile = argv[1];
 
     // Load scene file
@@ -150,8 +188,11 @@ void runCuda() {
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
 
     if (iteration == 0) {
+        float *gKernel = new float[5 * 5];
+        FilterCreation(5, gKernel);
         pathtraceFree();
-        pathtraceInit(scene);
+        pathtraceInit(scene, gKernel);
+        imageDenoised = false;
     }
 
     uchar4 *pbo_dptr = NULL;
@@ -160,14 +201,54 @@ void runCuda() {
     if (iteration < ui_iterations) {
         iteration++;
 
+#if TIMER
+        // Start Timer
+        if (iteration == 1)
+        {
+            timePT = 0.f;
+        }
+        timer().startCpuTimer();
+#endif // TIMER
+
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
+        pathtrace(frame, iteration); 
+
+#if TIMER
+        timer().endCpuTimer();
+        timePT += timer().getCpuElapsedTimeForPreviousOperation();
+        if (iteration == ui_iterations) {
+            std::cout << "Path-trace time for " << iteration << " iterations: " << timePT << "ms" << std::endl;
+        }
+#endif // TIMER
     }
 
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr);
-    } else {
+    }
+    else if (ui_denoise && iteration == ui_iterations)
+    {
+        if (!imageDenoised)
+        {
+#if TIMER
+            // Start Timer
+            timeAT = 0.f;
+            if (!hasPrinted) {
+                timer().startCpuTimer();
+            }
+#endif // TIMER
+            imageDenoised = DenoiseImage(renderState->camera.resolution.x, renderState->camera.resolution.y, iteration, ui_filterSize,
+                ui_colorWeight, ui_normalWeight, ui_positionWeight);
+
+#if TIMER
+                timer().endCpuTimer();
+                timeAT += timer().getCpuElapsedTimeForPreviousOperation();
+                std::cout << "Denoise time for " << iteration << " iterations: " << timeAT << "ms\n\n" << std::endl;
+#endif // TIMER
+        }
+        showDenoise(pbo_dptr, iteration);
+    }
+    else {
       showImage(pbo_dptr, iteration);
     }
 
