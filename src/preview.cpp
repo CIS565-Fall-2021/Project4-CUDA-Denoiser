@@ -236,9 +236,11 @@ void drawGui(int windowWidth, int windowHeight) {
 }
 
 void mainLoop() {
+    int frame = 0;
     while (!glfwWindowShouldClose(window)) {
+        frame++;
         glfwPollEvents();
-        runCuda();
+        runCuda(frame);
 
         string title = "CIS565 Path Tracer | " + utilityCore::convertIntToString(iteration) + " Iterations";
         glfwSetWindowTitle(window, title.c_str());
@@ -257,6 +259,10 @@ void mainLoop() {
         drawGui(display_w, display_h);
 
         glfwSwapBuffers(window);
+
+        if(frame > 2147453647){
+          frame = 0;
+        }
     }
     glfwDestroyWindow(window);
     glfwTerminate();

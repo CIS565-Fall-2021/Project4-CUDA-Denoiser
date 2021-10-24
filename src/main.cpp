@@ -1,6 +1,9 @@
 #include "main.h"
 #include "preview.h"
 #include <cstring>
+#include <glm/gtx/string_cast.hpp>
+#include <chrono>
+
 
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
@@ -120,11 +123,13 @@ void saveImage() {
     //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
-void runCuda() {
+void runCuda(int frame) {
     if (lastLoopIterations != ui_iterations) {
       lastLoopIterations = ui_iterations;
       camchanged = true;
     }
+    auto start = std::chrono::system_clock::now();
+
 
     if (camchanged) {
         iteration = 0;
@@ -148,38 +153,77 @@ void runCuda() {
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
+    bool printedtime = false;
 
     if (iteration == 0) {
+      scene->printed_t = false;
+      scene->start_t = std::chrono::system_clock::now();
         pathtraceFree();
         pathtraceInit(scene);
+        std::cout << "CAM: pos " << glm::to_string(scene->state.camera.position) << " lookat " << glm::to_string(scene->state.camera.lookAt) << " up " << glm::to_string(scene->state.camera.up) << '\n';
+
+//      uchar4 *pbo_dptr = NULL;
+//      iteration++;
+//      cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
+//
+//      // execute the kernel
+//      int frame = 0;
+//      pathtrace(pbo_dptr, frame, iteration);
+//
+//      // unmap buffer object
+//      cudaGLUnmapBufferObject(pbo);
     }
 
-    uchar4 *pbo_dptr = NULL;
-    cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
+  uchar4 *pbo_dptr = NULL;
+  cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
-    if (iteration < ui_iterations) {
-        iteration++;
+  if (iteration < ui_iterations) {
+    iteration++;
 
-        // execute the kernel
-        int frame = 0;
-        pathtrace(frame, iteration);
+    // execute the kernel
+    //int frame = 0;
+    pathtrace(pbo_dptr, frame, iteration);
+  }else{
+    if (!scene->printed_t){
+      scene->stop_t = std::chrono::system_clock::now();
+      printf("Render took %ld ms\n", (scene->stop_t - scene->start_t).count());
+      scene->printed_t = true;
     }
+  }
 
-    if (ui_showGbuffer) {
-      showGBuffer(pbo_dptr);
-    } else {
-      showImage(pbo_dptr, iteration);
-    }
+  if(
+          scene->denoise != ui_denoise ||
+                  scene->dn_colorWeight != ui_colorWeight ||
+          scene->dn_filterSize != (float) ui_filterSize ||
+        scene->dn_normalWeight != ui_normalWeight ||
+        scene->dn_positionWeight != ui_positionWeight
+  ){
+    iteration = 0;
+  }
 
-    // unmap buffer object
-    cudaGLUnmapBufferObject(pbo);
+  scene->denoise = ui_denoise;
+  scene->dn_colorWeight = ui_colorWeight;
+  scene->dn_filterSize = (float) ui_filterSize;
+  scene->dn_normalWeight = ui_normalWeight;
+  scene->dn_positionWeight = ui_positionWeight;
 
-    if (ui_saveAndExit) {
-        saveImage();
-        pathtraceFree();
-        cudaDeviceReset();
-        exit(EXIT_SUCCESS);
-    }
+  if (ui_showGbuffer) {
+    showGBuffer(pbo_dptr);
+    scene->disp_idx = 1;
+  } else {
+    showImage(pbo_dptr, iteration);
+    scene->disp_idx = 0;
+  }
+
+  // unmap buffer object
+  cudaGLUnmapBufferObject(pbo);
+
+  if (ui_saveAndExit) {
+    saveImage();
+    pathtraceFree();
+    cudaDeviceReset();
+    exit(EXIT_SUCCESS);
+  }
 }
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -219,7 +263,7 @@ void mousePositionCallback(GLFWwindow* window, double xpos, double ypos) {
     camchanged = true;
   }
   else if (rightMousePressed) {
-    zoom += (ypos - lastY) / height;
+    zoom += ((ypos - lastY) / height) * 5;
     zoom = std::fmax(0.1f, zoom);
     camchanged = true;
   }
