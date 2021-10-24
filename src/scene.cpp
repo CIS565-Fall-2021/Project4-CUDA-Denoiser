@@ -12,6 +12,7 @@
 #include "tiny_obj_loader.h"
 
 Scene::Scene(string filename) {
+    disp_idx = 0;
     cout << "Reading scene from " << filename << " ..." << endl;
 
     if(filename.substr(filename.size() - 4) == "gltf"){

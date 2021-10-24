@@ -4,6 +4,7 @@
 #include <sstream>
 #include <fstream>
 #include <iostream>
+#include <chrono>
 #include "glm/glm.hpp"
 #include "utilities.h"
 #include "sceneStructs.h"
@@ -34,6 +35,17 @@ public:
     glm::vec3 obj_maxs;
 
     std::vector<Triangle> triangles;
+    int disp_idx;
+
+    bool denoise;
+    float dn_filterSize;
+    float dn_colorWeight;
+    float dn_normalWeight;
+    float dn_positionWeight;
+
+    std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<int64_t, std::ratio<1, 1000000000>>> start_t;
+    std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<int64_t, std::ratio<1, 1000000000>>> stop_t;
+    bool printed_t;
 
 
 };

@@ -2,6 +2,7 @@
 #include "preview.h"
 #include <cstring>
 #include <glm/gtx/string_cast.hpp>
+#include <chrono>
 
 
 #include "../imgui/imgui.h"
@@ -127,6 +128,9 @@ void runCuda(int frame) {
       lastLoopIterations = ui_iterations;
       camchanged = true;
     }
+    auto start = std::chrono::system_clock::now();
+
+
     if (camchanged) {
         iteration = 0;
         Camera &cam = renderState->camera;
@@ -149,8 +153,11 @@ void runCuda(int frame) {
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
+    bool printedtime = false;
 
     if (iteration == 0) {
+      scene->printed_t = false;
+      scene->start_t = std::chrono::system_clock::now();
         pathtraceFree();
         pathtraceInit(scene);
         std::cout << "CAM: pos " << glm::to_string(scene->state.camera.position) << " lookat " << glm::to_string(scene->state.camera.lookAt) << " up " << glm::to_string(scene->state.camera.up) << '\n';
@@ -176,12 +183,36 @@ void runCuda(int frame) {
     // execute the kernel
     //int frame = 0;
     pathtrace(pbo_dptr, frame, iteration);
+  }else{
+    if (!scene->printed_t){
+      scene->stop_t = std::chrono::system_clock::now();
+      printf("Render took %ld ms\n", (scene->stop_t - scene->start_t).count());
+      scene->printed_t = true;
+    }
   }
+
+  if(
+          scene->denoise != ui_denoise ||
+                  scene->dn_colorWeight != ui_colorWeight ||
+          scene->dn_filterSize != (float) ui_filterSize ||
+        scene->dn_normalWeight != ui_normalWeight ||
+        scene->dn_positionWeight != ui_positionWeight
+  ){
+    iteration = 0;
+  }
+
+  scene->denoise = ui_denoise;
+  scene->dn_colorWeight = ui_colorWeight;
+  scene->dn_filterSize = (float) ui_filterSize;
+  scene->dn_normalWeight = ui_normalWeight;
+  scene->dn_positionWeight = ui_positionWeight;
 
   if (ui_showGbuffer) {
     showGBuffer(pbo_dptr);
+    scene->disp_idx = 1;
   } else {
     showImage(pbo_dptr, iteration);
+    scene->disp_idx = 0;
   }
 
   // unmap buffer object

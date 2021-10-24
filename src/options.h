@@ -9,9 +9,15 @@
  * !!! SEE HERE, compile-time options for features !!!
  */
 
+
+
 // enable the denoiser
 #define ENABLE_OIDN 0
 #define OIDN_THREADS 12  // note: CPU threads to use, NOT GPU
+
+// enable the other denoiser (lol)
+// actually turn on only gauss vs whole weighting
+#define DENOISER_WEIGHTING_ENABLE 1
 
 #define ENABLE_MATERIAL_SORTING 0
 
@@ -22,7 +28,7 @@
 #define CAMERA_ZOOM_PADDING 2.0  // Just a little buffer added to the auto-calculated camera distance
 #define CAMERA_RES_X 800
 #define CAMERA_RES_Y 800
-#define CAMERA_ITERATIONS 5000
+#define CAMERA_ITERATIONS 100
 
 // this can be zero, to turn off, or numbers higher than one for more blur effect
 // I would recommend to DISABLE THIS, when using OIDN

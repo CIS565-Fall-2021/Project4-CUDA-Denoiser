@@ -9,180 +9,172 @@ CUDA Denoiser For CUDA Path Tracer
 * Tested on: Linux pop-os 5.11.0-7614-generic, i7-9750H CPU @ 2.60GHz 32GB, GeForce GTX 1650 Mobile / Max-Q 4GB
 
 
-## Reverse Light Ray Bouncy Thing
+## Trading accuracy for visual acceptability
 
 | | | 
 | ----------- | -----------| 
-| ![](img/header1.png)      | ![](img/header2.png)   |
+| ![](img/denoise/title1.png)      | ![](img/denoise/title2.png)   |
 | | |
 
-This project represents the concept of a _path tracer_ along with various improvements 
-to demonstrate viable use cases for this type of software. A path tracer conceptually 
-is a program designed to mimic the behaviour of physically based, real world light 
-interactions with various common materials.  This is accomplished, at a high level, 
-by choosing rays from the camera plane, and following their bounces backwards toward 
-potential sources of light.
+In this project we implement a CUDA based version of the A-trous edge-evoiding denoise algorithm.
+(See https://jo.dreggn.org/home/2010_atrous.pdf) It is implemented atop a previous version
+of our general purpose path tracer. 
 
-### General Implementation details
+Simply, we do a modified Gaussian blur (modified mainly for performance reasons in CUDA, not
+for edge avoiding), but weight it such that blur is less intensive along parts of the image
+that we detect as 'edges' based on auxiliary information we gather from the path tracer: in 
+this case, the normal and position of each point (from the first ray-bounce).
 
-The path tracer is programmed primarily in C++ and CUDA, prepared with the common 
-_CMake_ build help tool. Tested to work with at least CUDA compute capability 5. At least
-one GB of GPU RAM and 4GB system RAM are recommended. In order to get the most out of the
-de-noising component, at least four CPU cores are recommended. 
+This project allows the user to modify color (traced image) weight, normal weight, and position
+weight at runtime, in order to deduce where optimal results occur. However, this algorithm
+in general has no method of automatically setting these parameters, so they must be hand-picked
+for the scene being traced. 
 
-### Program usage
+| Color buffer | Normal buffer | Position buffer | 
+| ----------- | -----------|-----------| 
+| ![](img/denoise/title1.png)      | ![](img/denoise/normalbuffer.png)   | ![](img/denoise/positionbuffer.png)   |
+| | | |
 
-For best runtime efficiency, the majority of options are applied at compile time, not run
-time. Please edit the file "src/options.h" in order to adjust the desired settings, then 
-re-compile. 
+You can see these additional buffers above. Conceptually, you can see hot detection of edges
+based on this information is certainly easier than from the original traced image. 
 
-At run time, the program may be invoked by simply calling it with a single argument to 
-the scene file to use. For example:
-
-`$ ./cis565_path_tracer scenes/cornell.txt`
-
-`$ ./cis565_path_tracer scenes/cornell2/cornell2.obj`
-
-Once the program is launched, you can observe the beauty! You may use the mouse left click + drag to rotate the camera, 
-right click and drag up/down to zoom. Pressing the 's' key will capture an image of the render
-at the current state. 
-
-### Features!
-
-#### Anti-Aliasing 
-
-An arbitrary value of antialias may be applied to soften edges. To enable, simply
-change the value of `ANTIALIAS_MULTIPLIER` to any value greater than zero. Decimal numbers
-are acceptable. I would recommend starting with a value between 0.5 and 1.5
-
-Note: It may not be desirable to use antialiasing along with the denoise feature -- experimentally,
-it seems that the model was likely trained on non-AA data, which can produce artifacts
-along the edges where the antialiasing usually has the greatest impact.
-
-| no AA      | AA 1/2| AA 1|
-| ----------- | -----------| -----------|
-| ![](img/perf/aa/noaa.png)      | ![](img/perf/aa/aa0.5.png)   | ![](img/perf/aa/aa1.png)   |
-
-#### Model-based Denoising
-
-We make use of the 'Intel® Open Image Denoise' library, which is purpose built to very
-quickly converge ray-traced images based on low-iteration (fast) tracing output, combined 
-with the information about normals and albedo of the viewed geometry. 
-
-To use this feature, change `ENABLE_OIDN` from `0` to `1` and select a reasonable value
-for `OIDN_THREADS` (ideally not more CPUs than your machine possesses).
-
-When using this feature, you may notice some slight model-based 'fog' when scenes contain
-very little geometry, but in general, you should be able to achieve an acceptable render
-with very few iterations relative to non-denoised.
-
-| Demo Scene      |  time difference | 10 iterations without denoise| 10 iterations with denoise |
-| ----------- | -----------| -----------| -----------|
-|Default Cornell|1.315s vs 5.406s|![](img/perf/denoise/cornell.png)|![](img/perf/denoise/cornelld.png)|
-|cornell2|1.183s vs 5.300s|![](img/perf/denoise/cornell2.png)|![](img/perf/denoise/cornell2d.png)|
-|airboat|1.730s vs 5.557s|![](img/perf/denoise/airboat.png)|![](img/perf/denoise/airboatd.png)|
-|room|26.412s vs 32.339s|![](img/perf/denoise/room.png)|![](img/perf/denoise/roomd.png)|
-|sanura|31.424s vs 35.217s|![](img/perf/denoise/sanura.png)|![](img/perf/denoise/sanurad.png)|
-#### Material sorting
-
-When there relatively even usage of materials across many objects, it can help to 
-have the algorithm sort them as a processing step on each 'bounce' step on each iteration.
-This option can be enabled by setting `ENABLE_MATERIAL_SORTING` to `1`'. On most scenes,
-it should help slightly with performance. However, in the scenes I assembled, seemingly 
-there were not enough materials in general to see any benefit from this feature.
-
-(listed in order of increasing numbers of triangles)
-![](img/perf/matsort.png)
-
-As can be seen, there was only a tiny improvement for one of the more complicated models,
-but for most others, the sorting is wasted. 
-
-#### Mesh / scene loading from wavefront .OBJ files
-
-OBJ files are a long standing 'human readable/editable' text object format with common
-support among many 3d editor programs such as Blender and Maya. 
-
-There are a few performance options (recommend you leave them enabled) when loading 
-from .OBJ files:
-
-- when `CHECK_MESH_BOUNDING_BOXES` is set to `1` the program will only attempt to bounce rays from triangles inside a mesh 
-in the case that the original ray lands somewhere in the objects bounding box. In order to 
-get the best efficiency from this check, it helps to break down meshes in OBJ files into 
-many objects, instead of having one huge mesh. 
-- when `TRIANGLE_BACK_FACE_CULLING` is set to `1` the program will ignore any interactions 
-with mesh triangles with a normal surface pointing away from the ray. This will only improve
-efficiency with most 3d objects, but may produce unexpected results when there are 2d surfaces 
-in your mesh. -- If they face the wrong way, they will not be rendered. 
-
-Because the Camera and its relevant options are not included as part of the .OBJ standard,
-there is a feature implemented to auto-calculate the best ideal position / distance based
-on the requested FOV and Resolution in the compile options. Additionally, there are other 
-camera based options available in options.h.
-
-Note that at this time, only fully triangulated based .OBJ files are supported (faces may
-only be triangles) -- this is the default type that is output by blender, for example.
-
-obj material files support the Kd (diffuse color) and Ks (specular color) options. We use
-the Ke (emissive) color to determine the magnitude of light emitted, so be sure to have 
-at least one emissive object in the scene. 
-
-#### Stream compaction
-
-While mostly implicitly obvious, compacting away rays which have hit a light, or a void
-can account for a significant speedup for some scene types. 
-
-| farthest      | med1| med2| closest| enclosed (back wall added) |
-| ----------- | -----------| -----------| -----------| ----------- |
-| ![](img/perf/scompact/farthest.png)      | ![](img/perf/scompact/med1.png)   | ![](img/perf/scompact/med2.png)   | ![](img/perf/scompact/closest.png)   | ![](img/perf/scompact/enclosed.png)        |
-
-![](img/perf/scompact/perf1.png)
-
-Note due to stream compaction, some rays are killed each sub-iteration. With an open box,
-while some rays may hit the light source and terminate, the vast majority will terminate into
-the void at a fairly high rate even after the first iteration. However, for the enclosed
-system, the light source is the only available termination point, so almost all rays remain 
-alive through all sub-iterations. 
+The overall goal of this type of blurring is to attain a much less noisey image (such as from 
+path tracing with a low number of iterations) without it "looking blurry".
 
 -----------------------
 
+### Modified Gaussian blurring
+
+To do the blurring part of the algorithm, we do an iterative, 25-pass method. This is 
+useful both for efficiency as well as ease of implementation in CUDA. 
+
+Experimentally, we can see that the blur approximated an exact gaussian well at low filter 
+sizes, but at larger filter diameters, some boxy-ness appears, likely due to the non-cicular
+method of spacing used in the calculations. 
+
+
+| operation | A-trous |  Gimp 2.10.24 | 
+| ----------- | -----------|-----------| 
+| no blur    | ![](img/denoise/blur/nonblur.png)   | ![](img/denoise/blur/nonblur.png)   |
+| small radius blur    | ![](img/denoise/blur/lightblur.png)   | ![](img/denoise/blur/lightblurgimp.png)   |
+| large radius blur    | ![](img/denoise/blur/heavyblur.png)   | ![](img/denoise/blur/heavyblurgimp.png)   |
+| | | |
+
+luckily, our filter sizes will usually not approach the larger end of size for our needs
+with de noising a path trace scene. 
+
+-----------------------
+
+### Performance 
+
+Is the trade off for doing the extra work worth it? For each iteration, we will need to store
+the extra normal and position information on the first bounce, we also need to copy the 
+color information once in order to blur the image in CUDA without race conditions. Then, we need
+to perform a fixed number of iterations (25, using the paper's implementation) for blurring.
+Will it be worth it? 
+
+First, let's look at how much extra time it adds to do our denoise algorithm on a very noisy,
+10 iteration image:
+
+![](img/denoise/comp2.png)
+
+We can see that, over a number of scenes, the addition of the denoising only adds 
+a small yet notable fraction to the runtime. 
+
+Now, let's check how this compares with getting a similar result using additional path
+trace iterations alone:
+
+![](img/denoise/comp1.png)
+
+It is immediately apparent that, on these test scenes, it would take significantly longer
+to get the same results without the denoiser. So far, so good...
+
+In some scenes, we may only get a good result by using a larger 'diameter' filter (similar
+to gaussian blur radius) Will this variable ruin our performance?
+
+![](img/denoise/comp4.png)
+
+Luckily, and mostly expectedly, we can see that the filter size barely has any effect on 
+the runtime of one cycle. (compare to NS in last plot for scale) This makes sense, because
+using the modified iterative gaussian, we do the same number of operations irrespective of
+filter size. There may be some memory convalescence issues with larger filters, but we can 
+see here for practical purposes, they are irrelevant. 
+
+How about the camera resolution?
+
+![](img/denoise/comp3.png)
+
+This is mixed. Unfortunately, it seems our iterative algorithm becomes significant relative 
+to the path trace iterations at higher resolutions. Extrapolating this out, though, at *reasonable*
+resolutions, that is, 4K or less, our denoise approach will always still be faster than 100
+or more iterations of tracing. So, this approach should retain it's usefulness, at least 
+until 8K or 16K displays become mainstream. :P
+
+-----------------------
+
+### Some qualitative notes
+
+We have many parameters to vary in order to produce a decent image. Some of the adjustments are
+very touchy to do manually, and there will surely need to be some improvements in this area
+in terms of automation for this type of filter to use used in a practical way in real time.
+
+| adjustment | lowest weight |  less weight | more weight | most weight | 
+| ----------- | -----------|-----------|-----------|-----------| 
+| filter size    | ![](img/denoise/comp/f1.png)   | ![](img/denoise/comp/f2.png)   | ![](img/denoise/comp/f3.png)   | ![](img/denoise/comp/f4.png)   |
+| color    | ![](img/denoise/comp/c1.png)   | ![](img/denoise/comp/c2.png)   | ![](img/denoise/comp/c3.png)   | ![](img/denoise/comp/c4.png)   |
+| normal    | ![](img/denoise/comp/n1.png)   | ![](img/denoise/comp/n2.png)   | ![](img/denoise/comp/n3.png)   | ![](img/denoise/comp/n4.png)   |
+| position    | ![](img/denoise/comp/p1.png)   | ![](img/denoise/comp/p2.png)   | ![](img/denoise/comp/p3.png)   | ![](img/denoise/comp/p4.png)   |
+| | | |
+
+-----------------------
+
+- the filter size seems to in general produce the greatest visual impact. 
+- normal weight, somewhat surprisingly to me, has much more of an effect on the sphere
+edge detection, rather than the wall/wall edges, which I thought would have a very significant
+change in normal. 
+- position weight is variable...I don't think this is in general too good a metric for most scenes
+which have a lot of geometry close together. 
+- color weight is the most useful in general, because objects edges will often have edges
+of different apparent colors just due to the way that lighting / shadows physically work. 
+
+I tried a number of scenes with different materials and more complicated geometry
+
+On some larger or more sparse scenes, like airboat, besides the lights, I was barely able 
+to get the denoiser to function at all. Some like cyl1 I was only able to get partial success. 
+Based on trial and error experimentation, it seems like the range of weights and filter
+sizes needed will likely change a bit depending on the scale of the scene, but I 
+didn't go far enough to be sure. It seems like the demo weights are well adjusted for 
+cornell. It could also be that sparse lighting in these scenes makes them *very* noisy.
+
+| airboat | cornell2 |  cyl1 | 
+| ----------- | -----------|-----------| 
+| ![](img/denoise/cornell2.png)   | ![](img/denoise/airboat.png)   | ![](img/denoise/cyl1.png)   |
+| | | |
+
+### Bonus: Comparison to Intel model-based denoiser
+
+We are all fully aware of how well general-purpose neural networks help to enhance results
+for many tasks compared to deterministic methods. For argument's sake I'll toss in a few results
+from Intel's denoiser so I can feel bad about myself. >w>
+
+||  cornell_ceiling_light | airboat | cornell2 |  cyl1 | 
+| ---------- | ----------- | -----------|-----------|-----------| 
+| This project| ![](img/denoise/intel/cornell.png)| ![](img/denoise/intel/cornell2.png)      | ![](img/denoise/intel/cyl1.png)   |
+| Intel denoiser | ![](img/denoise/intel/cornellI.png)| ![](img/denoise/intel/cornell2I.png)     | ![](img/denoise/intel/cyl1I.png)   |
+| | | | |
+
+On the plus side, because the intel model evaluation is on CPU only at the moment, this 
+project's algorithm actually runs significantly faster for the same number of iterations. 
+
 ### OutTakes >w>
 
-Behold some interesting artwork I've made, totally on purpose! 
-All credit goes to random typos in my code...
+Visual weirdness worthy of documenting?
 
-#### Everything's a Mirror~
-![](img/outtakes/mirrorbox2.png)
+#### Disco~
+![](img/denoise/outtakes/disco.png)
 
-#### Everything's a Mirror (Funky reverse blacklight)~
-![](img/outtakes/mirrorbox.png)
+#### VCR1~
+![](img/denoise/outtakes/vcr1.png)
 
-#### Radioactive Desaturation~
-![](img/outtakes/desaturation.png)
-
-#### Shadow Play~
-![](img/outtakes/shadowachne.png)
-
-#### Hammered~
-![](img/outtakes/trippydenoise.png)
-
-#### Reflections of Water~
-![](img/outtakes/wallsofwater.png)
-
-#### Chaos Rave~
-![](img/outtakes/chaosrave.png)
-
-#### Budget Barriers~
-![](img/outtakes/budgetwalls.gif)
-
-#### Formless Edges~
-![](img/outtakes/formlessedges.png)
-
-### Credits / Acknowledgements 
-
-(note that any specific code usages are also included inline with the source)
-
-- For help with OS directory processing: sehe @ https://stackoverflow.com/a/8518855
-- For help with ray-triangle intersection: Scratchapixel @ https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-rendering-a-triangle/moller-trumbore-ray-triangle-intersection
-- The 'tiny object' library for parsing wavefront OBJ file formats: <Many contributors> @ https://github.com/tinyobjloader/tinyobjloader
-- The 'Intel® Open Image Denoise' software/library for denoising ray-traced images: <Many Contributors> @ https://github.com/OpenImageDenoise/oidn
-- https://people.sc.fsu.edu/~jburkardt/data/obj/obj.html -- for sample OBJ files
+#### Diamonds~
+![](img/denoise/outtakes/vcr2.png)
