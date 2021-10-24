@@ -23,12 +23,13 @@ int ui_iterations = 0;
 int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
-bool ui_denoise = false;
-int ui_filterSize = 80;
+bool ui_denoise = true; // false;
+int ui_filterSize = 15;
 float ui_colorWeight = 0.45f;
 float ui_normalWeight = 0.35f;
 float ui_positionWeight = 0.2f;
 bool ui_saveAndExit = false;
+
 
 static bool camchanged = true;
 static float dtheta = 0, dphi = 0;
@@ -40,6 +41,7 @@ glm::vec3 ogLookAt; // for recentering the camera
 
 Scene *scene;
 RenderState *renderState;
+DenoiseSettings *denoiseSettings;
 int iteration;
 
 int width;
@@ -62,12 +64,22 @@ int main(int argc, char** argv) {
     // Load scene file
     scene = new Scene(sceneFile);
 
+    // Set up denoise settings to pass data from UI
+    denoiseSettings = new DenoiseSettings();
+    denoiseSettings->denoise = &ui_denoise;
+    denoiseSettings->filterSize = &ui_filterSize;
+    denoiseSettings->colorWeight = &ui_colorWeight;
+	denoiseSettings->normalWeight = &ui_normalWeight;
+	denoiseSettings->positionWeight = &ui_positionWeight;
+
     // Set up camera stuff from loaded path tracer settings
     iteration = 0;
     renderState = &scene->state;
     Camera &cam = renderState->camera;
     width = cam.resolution.x;
     height = cam.resolution.y;
+
+    renderState->denoiseSettings = denoiseSettings;
 
     ui_iterations = renderState->iterations;
     startupIterations = ui_iterations;
@@ -167,7 +179,11 @@ void runCuda() {
 
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr);
-    } else {
+    } 
+    else if (ui_denoise) {
+        showDenoise(pbo_dptr, iteration);
+    }
+    else {
       showImage(pbo_dptr, iteration);
     }
 

@@ -67,28 +67,52 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
     }
 }
 
+////Kernel that writes the image to the OpenGL PBO directly.
+//__global__ void sendDenoiseToPBO(uchar4* pbo, glm::ivec2 resolution,
+//        int iter, glm::vec3* image) {
+//    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+//    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+//
+//    if (x < resolution.x && y < resolution.y) {
+//        int index = x + (y * resolution.x);
+//        glm::vec3 pix = image[index];
+//
+//        glm::ivec3 color;
+//        color.x = glm::clamp((int) (pix.x * 255.0), 0, 255);
+//        color.y = glm::clamp((int) (pix.y * 255.0), 0, 255);
+//        color.z = glm::clamp((int) (pix.z * 255.0), 0, 255);
+//
+//        // Each thread writes one pixel location in the texture (textel)
+//        pbo[index].w = 0;
+//        pbo[index].x = color.x;
+//        pbo[index].y = color.y;
+//        pbo[index].z = color.z;
+//    }
+//}
+
 __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        float timeToIntersect = gBuffer[index].t * 256.0;
-
+        //float timeToIntersect = gBuffer[index].t * 256.0;
         pbo[index].w = 0;
-        pbo[index].x = timeToIntersect;
-        pbo[index].y = timeToIntersect;
-        pbo[index].z = timeToIntersect;
+        pbo[index].x = gBuffer[index].normal.x * 256.0f;
+        pbo[index].y = gBuffer[index].normal.y * 256.0f;
+        pbo[index].z = gBuffer[index].normal.z * 256.0f;
     }
 }
 
 static Scene * hst_scene = NULL;
+static DenoiseSettings * denoiseSettings = NULL;
 static glm::vec3 * dev_image = NULL;
 static Geom * dev_geoms = NULL;
 static Material * dev_materials = NULL;
 static PathSegment * dev_paths = NULL;
 static ShadeableIntersection * dev_intersections = NULL;
 static GBufferPixel* dev_gBuffer = NULL;
+static glm::vec3 * dev_dnImage = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
 
@@ -113,6 +137,8 @@ void pathtraceInit(Scene *scene) {
 
     cudaMalloc(&dev_gBuffer, pixelcount * sizeof(GBufferPixel));
 
+    cudaMalloc(&dev_dnImage, pixelcount * sizeof(glm::vec3));
+    cudaMemset(dev_dnImage, 0, pixelcount * sizeof(glm::vec3));
     // TODO: initialize any extra device memeory you need
 
     checkCUDAError("pathtraceInit");
@@ -125,6 +151,7 @@ void pathtraceFree() {
   	cudaFree(dev_materials);
   	cudaFree(dev_intersections);
     cudaFree(dev_gBuffer);
+    cudaFree(dev_dnImage); 
     // TODO: clean up any extra device memory you created
 
     checkCUDAError("pathtraceFree");
@@ -281,7 +308,10 @@ __global__ void generateGBuffer (
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < num_paths)
   {
-    gBuffer[idx].t = shadeableIntersections[idx].t;
+    //gBuffer[idx].t = shadeableIntersections[idx].t;
+    gBuffer[idx].normal = shadeableIntersections[idx].surfaceNormal;
+    gBuffer[idx].position = getPointOnRay(pathSegments[idx].ray, 
+                                          shadeableIntersections[idx].t);
   }
 }
 
@@ -295,6 +325,97 @@ __global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterati
 		PathSegment iterationPath = iterationPaths[index];
 		image[iterationPath.pixelIndex] += iterationPath.color;
 	}
+}
+
+__global__ void denoise(int n, 
+						GBufferPixel* gbuff, 
+						glm::vec3* image, 
+						glm::vec3 * dnImage,
+						int step, 
+						int imageWidth,
+						float normalWeight,
+						float posWeight, 
+						float colorWeight)
+{
+	int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+    if (index < n)
+    {
+        glm::vec3 colSum = glm::vec3(0.0f);
+        float wSum = 0.0f;
+        // hardcode a 5x5 Gaussian filter
+        float GaussianFilter[5][5] = { {1,  4, 6,  4,  1},
+                                       {4, 16, 24, 16, 4},
+                                       {6, 24, 36, 24, 6},
+                                       {4, 16, 24, 16, 4},
+                                       {1,  4,  6,  4, 1} };
+
+        // a way to convert from 2d pixel space to the 1d pixel array we have
+		int uStepIm = 1;
+		int vStepIm = imageWidth;
+
+        // the relative offset from the center pixel in the image
+        // e.x. -2, -2 is two pixels left and two pixels up in screenspace
+        int imStartX = -2;
+        int imStartY = -2;
+
+
+        // store the gbuffer values for the center pixel of our filter
+        // i.e. the one we're actually calculating the color for
+        glm::vec3 centralNorm = gbuff[index].normal;
+        glm::vec3 centralPos = gbuff[index].position;
+        glm::vec3 centralCol = image[index];
+
+        // the cell count in 2d, starting in the upper left corner of
+        // our 5x5 filter
+		for (int y = 0; y < 5; y++) {
+			for (int x = 0; x < 5; x++) {
+				int imX = (imStartX + x) * uStepIm * step;
+				int imY = (imStartY + y) * vStepIm * step;
+
+				// i is the index for 1d representations of our 2d
+				// data, i.e. the beauty pass and the gbuffer
+				int i = index + imX + imY;
+				if (i < 0 || i >= n) {
+					// i can be out of bounds along the edges of the image
+					continue;
+				}
+
+				// get the Gaussian value for this pixel
+				float gVal = GaussianFilter[y][x];
+
+				// get the gbuffer values for this pixel
+				glm::vec3 nVal = gbuff[i].normal;
+				glm::vec3 pVal = gbuff[i].position;
+				glm::vec3 cVal = image[i];
+
+				// get the distance of the gbuffer values 
+				// from our central pixel
+				//glm::vec3 a = centralCol - cVal;
+				float nDist = max(glm::length(centralNorm - nVal)/(step*step), 0.0f);
+				float pDist = glm::length(centralPos - pVal);// , centralPos - pVal);
+				float cDist = glm::length(centralCol - cVal);// , centralCol - cVal);
+
+				// get the weights based on these distances
+				// and our input values
+				float nw = min(exp(-1.0f * nDist / normalWeight), 1.0f);
+				float pw = min(exp(-1.0f * pDist / posWeight), 1.0f);
+				float cw = min(exp(-1.0f * cDist / colorWeight), 1.0f);
+
+				// get the overall 
+				float w = nw * pw * cw;
+
+				colSum += cVal * w * gVal;
+				wSum += w * gVal;
+			}
+		}
+
+        //bring denoise
+        volatile float3 foo = make_float3(colSum.x, colSum.y, colSum.z);
+        volatile float3 bar = make_float3(centralCol.x, centralCol.y, centralCol.z);
+        dnImage[index] = colSum / wSum;
+        //dnImage[index] = colSum / (256.0f * steps);
+    }
 }
 
 /**
@@ -399,6 +520,25 @@ void pathtrace(int frame, int iter) {
 	finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
 
     ///////////////////////////////////////////////////////////////////////////
+    if (*hst_scene->state.denoiseSettings->denoise){
+
+        float nWeight = pow(*hst_scene->state.denoiseSettings->normalWeight, 2);
+        float pWeight = pow(*hst_scene->state.denoiseSettings->positionWeight, 2);
+        float cWeight = pow(*hst_scene->state.denoiseSettings->colorWeight, 2);
+
+        int steps = *hst_scene->state.denoiseSettings->filterSize / 5;
+        for (int step = 1; step <= steps; step++) {
+			denoise <<<numBlocksPixels, blockSize1d>>>(num_paths, 
+													   dev_gBuffer, 
+													   dev_image, 
+													   dev_dnImage, 
+													   step, 
+													   cam.resolution.x,
+													   nWeight, 
+													   pWeight,
+													   cWeight);
+        }
+    }
 
     // CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
     // Otherwise, screenshots are also acceptable.
@@ -419,6 +559,17 @@ void showGBuffer(uchar4* pbo) {
 
     // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
     gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
+}
+
+void showDenoise(uchar4* pbo, int iter) {
+    const Camera &cam = hst_scene->state.camera;
+    const dim3 blockSize2d(8, 8);
+    const dim3 blocksPerGrid2d(
+            (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
+            (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
+
+    // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
+    sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_dnImage);
 }
 
 void showImage(uchar4* pbo, int iter) {
