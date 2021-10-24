@@ -157,8 +157,8 @@ We are all fully aware of how well general-purpose neural networks help to enhan
 for many tasks compared to deterministic methods. For argument's sake I'll toss in a few results
 from Intel's denoiser so I can feel bad about myself. >w>
 
-||  cornell_ceiling_light | airboat | cornell2 |  cyl1 | 
-| ---------- | ----------- | -----------|-----------|-----------| 
+|  |  cornell_ceiling_light |  cornell2 |  cyl1 | 
+| ---------- | ----------- | -----------|-----------|
 | This project| ![](img/denoise/intel/cornell.png)| ![](img/denoise/intel/cornell2.png)      | ![](img/denoise/intel/cyl1.png)   |
 | Intel denoiser | ![](img/denoise/intel/cornellI.png)| ![](img/denoise/intel/cornell2I.png)     | ![](img/denoise/intel/cyl1I.png)   |
 | | | | |
