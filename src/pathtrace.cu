@@ -331,7 +331,7 @@ __global__ void denoise(int n,
 						GBufferPixel* gbuff, 
 						glm::vec3* image, 
 						glm::vec3 * dnImage,
-						int steps, 
+						int step, 
 						int imageWidth,
 						float normalWeight,
 						float posWeight, 
@@ -368,51 +368,47 @@ __global__ void denoise(int n,
 
         // the cell count in 2d, starting in the upper left corner of
         // our 5x5 filter
-        for (int step = 1; step <= steps; step++) {
-            for (int y = 0; y < 5; y++) {
-                for (int x = 0; x < 5; x++) {
-                    int imX = (imStartX + x) * uStepIm * step;
-                    int imY = (imStartY + y) * vStepIm * step;
+		for (int y = 0; y < 5; y++) {
+			for (int x = 0; x < 5; x++) {
+				int imX = (imStartX + x) * uStepIm * step;
+				int imY = (imStartY + y) * vStepIm * step;
 
-                    // i is the index for 1d representations of our 2d
-                    // data, i.e. the beauty pass and the gbuffer
-                    int i = index + imX + imY;
-                    if (i < 0 || i >= n) {
-                        // i can be out of bounds along the edges of the image
-                        continue;
-                    }
+				// i is the index for 1d representations of our 2d
+				// data, i.e. the beauty pass and the gbuffer
+				int i = index + imX + imY;
+				if (i < 0 || i >= n) {
+					// i can be out of bounds along the edges of the image
+					continue;
+				}
 
-                    // get the Gaussian value for this pixel
-                    float gVal = GaussianFilter[y][x];
+				// get the Gaussian value for this pixel
+				float gVal = GaussianFilter[y][x];
 
-                    // get the gbuffer values for this pixel
-                    glm::vec3 nVal = gbuff[i].normal;
-                    glm::vec3 pVal = gbuff[i].position;
-                    glm::vec3 cVal = image[i];
+				// get the gbuffer values for this pixel
+				glm::vec3 nVal = gbuff[i].normal;
+				glm::vec3 pVal = gbuff[i].position;
+				glm::vec3 cVal = image[i];
 
-                    // get the distance of the gbuffer values 
-                    // from our central pixel
-					//glm::vec3 a = centralCol - cVal;
-                    float nDist = max(glm::length(centralNorm - nVal)/(step*step), 0.0f);
-					float pDist = glm::length(centralPos - pVal);// , centralPos - pVal);
-					float cDist = glm::length(centralCol - cVal);// , centralCol - cVal);
+				// get the distance of the gbuffer values 
+				// from our central pixel
+				//glm::vec3 a = centralCol - cVal;
+				float nDist = max(glm::length(centralNorm - nVal)/(step*step), 0.0f);
+				float pDist = glm::length(centralPos - pVal);// , centralPos - pVal);
+				float cDist = glm::length(centralCol - cVal);// , centralCol - cVal);
 
-                    // get the weights based on these distances
-                    // and our input values
-                    float nw = min(exp(-1.0f * nDist / normalWeight), 1.0f);
-                    float pw = min(exp(-1.0f * pDist / posWeight), 1.0f);
-					float cw = min(exp(-1.0f * cDist / colorWeight), 1.0f);
+				// get the weights based on these distances
+				// and our input values
+				float nw = min(exp(-1.0f * nDist / normalWeight), 1.0f);
+				float pw = min(exp(-1.0f * pDist / posWeight), 1.0f);
+				float cw = min(exp(-1.0f * cDist / colorWeight), 1.0f);
 
-                    // get the overall 
-                    float w = nw * pw * cw;
-                    //float w = 1.0f;
+				// get the overall 
+				float w = nw * pw * cw;
 
-                    colSum += cVal * w * gVal;
-                    wSum += w * gVal;
-                }
-            }
-			//centralCol = colSum / wSum;
-        }
+				colSum += cVal * w * gVal;
+				wSum += w * gVal;
+			}
+		}
 
         //bring denoise
         volatile float3 foo = make_float3(colSum.x, colSum.y, colSum.z);
@@ -531,15 +527,17 @@ void pathtrace(int frame, int iter) {
         float cWeight = pow(*hst_scene->state.denoiseSettings->colorWeight, 2);
 
         int steps = *hst_scene->state.denoiseSettings->filterSize / 5;
-        denoise <<<numBlocksPixels, blockSize1d>>>(num_paths, 
-												   dev_gBuffer, 
-												   dev_image, 
-												   dev_dnImage, 
-												   steps, 
-												   cam.resolution.x,
-                                                   nWeight, 
-												   pWeight,
-												   cWeight);
+        for (int step = 1; step <= steps; step++) {
+			denoise <<<numBlocksPixels, blockSize1d>>>(num_paths, 
+													   dev_gBuffer, 
+													   dev_image, 
+													   dev_dnImage, 
+													   step, 
+													   cam.resolution.x,
+													   nWeight, 
+													   pWeight,
+													   cWeight);
+        }
     }
 
     // CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
