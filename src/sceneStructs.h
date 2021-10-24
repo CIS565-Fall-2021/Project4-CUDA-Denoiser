@@ -10,11 +10,35 @@
 enum GeomType {
     SPHERE,
     CUBE,
+    MESH
 };
 
 struct Ray {
     glm::vec3 origin;
     glm::vec3 direction;
+};
+
+struct Triangle {
+    glm::vec3 verts[3];
+    glm::vec3 normals[3];
+};
+
+struct Mesh {
+    std::vector<Triangle> triangles;
+    int numTriangles;
+
+    glm::vec3 bottomLeft;
+    glm::vec3 topRight;
+};
+
+struct OctreeNode {
+    glm::vec3 center;
+    glm::vec3 bottomLeft;
+    glm::vec3 topRight;
+
+    int children[8];
+    int start;
+    int end;
 };
 
 struct Geom {
@@ -49,6 +73,8 @@ struct Camera {
     glm::vec3 right;
     glm::vec2 fov;
     glm::vec2 pixelLength;
+    float focalDistance;
+    float lensRadius;
 };
 
 struct RenderState {
@@ -79,4 +105,6 @@ struct ShadeableIntersection {
 // What information might be helpful for guiding a denoising filter?
 struct GBufferPixel {
   float t;
+  glm::vec3 norm;
+  glm::vec3 pos;
 };
