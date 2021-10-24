@@ -33,6 +33,63 @@ place of GLSL fragment shaders for the computations.
 
 ## Performance Analysis
 
+### Qualitative Analysis
+* Materials: The filter works best with diffuse materials. 
+A glass or metal sphere might have neighboring pixels mapping to different parts
+of a given scene while maintaining similar position and normal coordinates. 
+This illustrates that a G-Buffer of first bounce position/normal/color does not
+provide sufficient information for the A-Trous filter to avoid reflected edges. 
+Even in the denoised image, the metal ball's reflections are blurred as to the 
+filter, they are part of the same shape and thus can be smoothed. 
+* Lighting: If too much of the image is dark, the filter will darken the image. 
+It is best to have a well illuminated scene, whether that means bigger lights
+or more renders before filtering
+* Simpler scenes and those with large diffuse areas are more suitable for a wide
+filter and large color weights but more intricate scenes will need more localized smoothing
+especially if the scene is supposed to be high frequency from a 
+signals processing perspective
+
+Image | Samples | Filter Size | Color | Normal | Position
+------|---------|-------------|-------|--------|---------
+![](finalRenders2/wahoo_10_noblur.png) | 10 | N/A | N/A | N/A | N/A 
+![](finalRenders2/wahoo_10_3_8.866_1.34_0.206.png) | 10 | 3 | 8.866 | 1.34 | 0.206
+![](finalRenders2/wahoo_10_20_8.866_1.34_0.206.png) | 10 | 20 | 8.866 | 1.34 | 0.206
+![](finalRenders2/wahoo_10_100_9.639_0.567_1.082.png) | 10 | 100 | 9.639 | 0.567 | 1.082
+![](finalRenders2/wahoo_100_noblur.png) | 100 | N/A | N/A | N/A | N/A 
+![](finalRenders2/wahoo_100_100_10_10_10.png) | 100 | 100 | 10 | 10 | 10 
+
+* For some reason, even with all things set to max, with 100 spp, the filter 
+smoothing is barely noticeable (side walls are smoother, shadows less pronounced)
+
+### Quantitative Analysis
+The filter operates on the rendered image output, basically post processing the 
+existing image except it is paired with the G-Buffer of relevant per pixel data. 
+What this means is that the filtering speed should have no dependence on the 
+geometries that comprise the scene. For a given resolution, regardless of the 
+polygon count of the scene or the number of passes taken, the smoothing step 
+should take a similar amount of time. 
+
+The filter size vs time scaling seems to be linear which is not
+expected as the number of iterations should be the log of the filter size but each iteration
+reads the same number of pixels. 
+![](img/filter_timevFilter.png) 
+
+As expected, the time to denoise a scene
+is uncoupled from the geometry of the scene itself. Ceiling and Cornell are simple
+while wahoo and cow have lots of triangles in the mesh.
+![](img/filter_scenevTime.png) 
+
+When the resolution per side doubles, the overall image pixels quadruples. 
+This chart shows the O(n^2) relationship
+![](img/filter_timevRes.png)
+
+
+The point of denoising is to reduce the number of samples-per-pixel/pathtracing iterations needed to achieve an acceptably smooth image. You should provide analysis and charts for the following:
+    how denoising influences the number of iterations needed to get an "acceptably smooth" result
+In addition to the above, you should also analyze your denoiser on a qualitative level:
+    how visual results vary with filter size -- does the visual quality scale uniformly with filter size?
+Note that "acceptably smooth" is somewhat subjective - we will leave the means for image comparison up to you, but image diffing tools may be a good place to start, and can help visually convey differences between two images.
+
 ## G-Buffer Views
 
 Image | Attribute
@@ -40,6 +97,7 @@ Image | Attribute
 ![](finalRenders2/debug_normals.png) | Surface Normals (absolute valued to be positive), Scaled up to 255
 ![](finalRenders2/debug_positions.png) | Positions (absolute valued to be positive), Unscaled
 ![](finalRenders2/debug_baseColor.png) | Material Color, Scaled up to 255
+![](finalRenders2/cursed_mario.png) | Overflow/wrapparound
 
 # CUDA Path Tracer
 ================

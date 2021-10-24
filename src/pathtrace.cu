@@ -356,10 +356,11 @@ __global__ void computeIntersections(
                 uv = tmp_uv;
                 // normal = tmp_normal;
                 // sorry not sorry this got out of control
-                auto tmpidx2 = uv2Idx(
-                    uv,
-                    mats[geom.materialid].texWidth,
-                    mats[geom.materialid].texHeight);
+                auto tmpidx2 = geom.useTexture ? uv2Idx(
+                                                     uv,
+                                                     mats[geom.materialid].texWidth,
+                                                     mats[geom.materialid].texHeight)
+                                               : 0;
                 normal = geom.type == MESH && geom.useTexture
                              ? glm::vec3(
                                    // transform from obj space to scene space
@@ -530,7 +531,7 @@ __global__ void generateGBuffer(
     int num_paths,
     ShadeableIntersection *shadeableIntersections,
     PathSegment *pathSegments,
-    GBufferPixel *gBuffer, Material *mats)
+    GBufferPixel *gBuffer, Material *mats, struct TexData *texData)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < num_paths)
@@ -539,7 +540,13 @@ __global__ void generateGBuffer(
         gBuffer[idx].norm = shadeableIntersections[idx].surfaceNormal;
         gBuffer[idx].pos = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
         gBuffer[idx].rtCol = pathSegments[idx].color;
-        gBuffer[idx].bCol = mats[shadeableIntersections[idx].materialId].color;
+        int texW, texH;
+        texW = shadeableIntersections[idx].useTexture ? mats[shadeableIntersections[idx].materialId].texWidth : 0;
+        texH = shadeableIntersections[idx].useTexture ? mats[shadeableIntersections[idx].materialId].texHeight : 0;
+        gBuffer[idx].bCol =
+            shadeableIntersections[idx].useTexture
+                ? texCol2Color(texData[uv2Idx(shadeableIntersections[idx].uvs, texW, texH)].bCol)
+                : mats[shadeableIntersections[idx].materialId].color;
     }
 }
 
@@ -677,7 +684,7 @@ void pathtrace(int frame, int iter)
             cudaDeviceSynchronize();
             if (depth == 0)
             {
-                generateGBuffer<<<numblocksPathSegmentTracing, blockSize1d>>>(num_paths, dev_intersections, dev_paths, dev_gBuffer, dev_materials);
+                generateGBuffer<<<numblocksPathSegmentTracing, blockSize1d>>>(num_paths, dev_intersections, dev_paths, dev_gBuffer, dev_materials, dev_texData);
             }
 
             // depth++;

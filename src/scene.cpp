@@ -243,7 +243,9 @@ int Scene::loadGeom(string objectid)
                     }
                     // meshVec[s].ts = meshTris;
                     // meshVec[s].useTexture = meshVec[s].numTris > 20000 ? s != 0 : 1;
-                    // meshVec[s].useTexture = true;   // normal
+
+                    // meshVec[s].useTexture = true; // normal
+                    // meshVec[s].useTexture = false;
                     meshVec[s].useTexture = s != 0; // ebon hawk windshield
                     meshVec[s].type = MESH;
                     // meshVec[s].meshIdx = s;

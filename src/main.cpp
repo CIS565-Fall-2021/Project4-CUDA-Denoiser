@@ -11,6 +11,8 @@
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
 
+#include <chrono>
+
 static std::string startTimeString;
 
 // For camera controls
@@ -213,7 +215,13 @@ void runCuda()
     {
       denoiseFree();
       denoiseInit(scene);
+      std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
       denoise(ui_filterSize, ui_normalWeight, ui_positionWeight, ui_colorWeight);
+      std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+      std::cout
+          << "Time difference = "
+          << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count()
+          << "[us]" << std::endl;
       // freeDenoise();
       prev_filterSize = ui_filterSize;
       prev_normalWeight = ui_normalWeight;
@@ -263,7 +271,7 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
       glfwSetWindowShouldClose(window, GL_TRUE);
       break;
     case GLFW_KEY_S:
-      saveImage();
+      ui_denoise ? saveDenoise() : saveImage();
       break;
     case GLFW_KEY_SPACE:
       camchanged = true;

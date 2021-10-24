@@ -6,7 +6,7 @@ SPECRGB     0 0 0
 REFL        0
 REFR        0
 REFRIOR     0
-EMITTANCE   5
+EMITTANCE   1
 COLORMAP 
 EMITMAP 
 ROUGHMAP 
@@ -70,9 +70,9 @@ NORMALMAP
 
 // Camera
 CAMERA
-RES         800 800
+RES         1200 1200
 FOVY        45
-ITERATIONS  5000
+ITERATIONS  10
 DEPTH       8
 FILE        cornell
 EYE         0.0 5 10.5
@@ -86,7 +86,7 @@ cube
 material 0
 TRANS       0 10 0
 ROTAT       0 0 0
-SCALE       3 .3 3
+SCALE       10 .3 10
 
 // Floor
 OBJECT 1
