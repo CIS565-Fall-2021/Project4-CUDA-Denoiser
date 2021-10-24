@@ -1,11 +1,22 @@
+# CUDA Denoiser 
+
+**University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 4**
+
+* **Name:**  Beini Gu
+  * [LinkedIn](https://www.linkedin.com/in/rgu/), [personal website](https://www.seas.upenn.edu/~gubeini/), [twitter](https://twitter.com/scoutydren), etc.
+* Tested on: Windows 10, AMD Ryzen 7 3700X 8-Core Processor 3.59 GHz 16GB, GTX 2060
+
+## Project Description
+
+This is a CUDA-based denoiser for path tracing. The denoising algorithm in use the Edge Avoiding A-Trous Wavelet Transform. This denoiser reduces the number of iteration steps for the Monte Carlo sampling path tracer. I integrated the denoiser into the previous CUDA path tracer project with added GUI sliders and parameters with the Dear Imgui library. 
+
 CUDA Path Tracer
 ================
 
-**University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 2**
+**University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 3**
 
 * **Name:**  Beini Gu
-
-  * [LinkedIn](https://www.linkedin.com/in/rgu/), [personal website](https://www.seas.upenn.edu/~gubeini/), [twitter](https://twitter.com/scoutydren), etc.
+* [LinkedIn](https://www.linkedin.com/in/rgu/), [personal website](https://www.seas.upenn.edu/~gubeini/), [twitter](https://twitter.com/scoutydren), etc.
 * Tested on: Windows 10, AMD Ryzen 7 3700X 8-Core Processor 3.59 GHz 16GB, GTX 2060
 
 ## Project Description
