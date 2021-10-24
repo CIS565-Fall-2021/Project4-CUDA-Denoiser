@@ -5,7 +5,7 @@
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
-
+#include "common.h"
 static std::string startTimeString;
 
 // For camera controls
@@ -45,6 +45,18 @@ int iteration;
 
 int width;
 int height;
+
+static float timePT;
+static float timeAT;
+static bool  hasPrinted;
+using StreamCompaction::Common::PerformanceTimer;
+#define TIMER 1
+
+PerformanceTimer& timer()
+{
+    static PerformanceTimer timer;
+    return timer;
+}
 
 void FilterCreation(int filter_size, float *kernel)
 {
@@ -189,9 +201,26 @@ void runCuda() {
     if (iteration < ui_iterations) {
         iteration++;
 
+#if TIMER
+        // Start Timer
+        if (iteration == 1)
+        {
+            timePT = 0.f;
+        }
+        timer().startCpuTimer();
+#endif // TIMER
+
         // execute the kernel
         int frame = 0;
         pathtrace(frame, iteration); 
+
+#if TIMER
+        timer().endCpuTimer();
+        timePT += timer().getCpuElapsedTimeForPreviousOperation();
+        if (iteration == ui_iterations) {
+            std::cout << "Path-trace time for " << iteration << " iterations: " << timePT << "ms" << std::endl;
+        }
+#endif // TIMER
     }
 
     if (ui_showGbuffer) {
@@ -201,8 +230,21 @@ void runCuda() {
     {
         if (!imageDenoised)
         {
+#if TIMER
+            // Start Timer
+            timeAT = 0.f;
+            if (!hasPrinted) {
+                timer().startCpuTimer();
+            }
+#endif // TIMER
             imageDenoised = DenoiseImage(renderState->camera.resolution.x, renderState->camera.resolution.y, iteration, ui_filterSize,
                 ui_colorWeight, ui_normalWeight, ui_positionWeight);
+
+#if TIMER
+                timer().endCpuTimer();
+                timeAT += timer().getCpuElapsedTimeForPreviousOperation();
+                std::cout << "Denoise time for " << iteration << " iterations: " << timeAT << "ms\n\n" << std::endl;
+#endif // TIMER
         }
         showDenoise(pbo_dptr, iteration);
     }
