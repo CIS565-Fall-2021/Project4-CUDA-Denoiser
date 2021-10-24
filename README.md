@@ -83,12 +83,18 @@ When the resolution per side doubles, the overall image pixels quadruples.
 This chart shows the O(n^2) relationship
 ![](img/filter_timevRes.png)
 
-
-The point of denoising is to reduce the number of samples-per-pixel/pathtracing iterations needed to achieve an acceptably smooth image. You should provide analysis and charts for the following:
-    how denoising influences the number of iterations needed to get an "acceptably smooth" result
-In addition to the above, you should also analyze your denoiser on a qualitative level:
-    how visual results vary with filter size -- does the visual quality scale uniformly with filter size?
-Note that "acceptably smooth" is somewhat subjective - we will leave the means for image comparison up to you, but image diffing tools may be a good place to start, and can help visually convey differences between two images.
+Denoising reduces the iterations needed to get an acceptably smooth result. 
+However, how large of a reduction is a complicated question. With simple geometry
+like cornell ceiling light, 10 iterations is all that is needed especially if 
+every surface is diffuse. The filter had trouble smoothing over 100 spp mario 
+while smoothing even glass and metal at 10 spp. It takes much tweaking to find 
+a good filter configuration however, and there is no good one size fits all solution.
+For some more complex scenes especially those involving meshes and textures, 
+sometimes there seems to be no large differences. For the ebon hawk, at 10 spp,
+the filter blended everything together into a rather ugly color still with spots
+of noise while at 50spp, I have a similar effect with the wahoo at 100spp:
+there is barely any discernable difference, and in this case, the background 
+streaks change slightly. 
 
 ## G-Buffer Views
 
@@ -98,6 +104,7 @@ Image | Attribute
 ![](finalRenders2/debug_positions.png) | Positions (absolute valued to be positive), Unscaled
 ![](finalRenders2/debug_baseColor.png) | Material Color, Scaled up to 255
 ![](finalRenders2/cursed_mario.png) | Overflow/wrapparound
+![](finalRenders2/filter_hawk.png) | not checking if using texture or base material
 
 # CUDA Path Tracer
 ================

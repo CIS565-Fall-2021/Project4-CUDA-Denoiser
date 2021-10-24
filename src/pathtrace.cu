@@ -536,17 +536,21 @@ __global__ void generateGBuffer(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < num_paths)
     {
-        gBuffer[idx].t = shadeableIntersections[idx].t;
-        gBuffer[idx].norm = shadeableIntersections[idx].surfaceNormal;
-        gBuffer[idx].pos = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
-        gBuffer[idx].rtCol = pathSegments[idx].color;
         int texW, texH;
         texW = shadeableIntersections[idx].useTexture ? mats[shadeableIntersections[idx].materialId].texWidth : 0;
         texH = shadeableIntersections[idx].useTexture ? mats[shadeableIntersections[idx].materialId].texHeight : 0;
+        gBuffer[idx].t = shadeableIntersections[idx].t;
+        // gBuffer[idx].norm = shadeableIntersections[idx].surfaceNormal;
+        gBuffer[idx].norm =
+            shadeableIntersections[idx].useTexture
+                ? texCol2Color(texData[uv2Idx(shadeableIntersections[idx].uvs, texW, texH)].bump)
+                : shadeableIntersections[idx].surfaceNormal;
+        gBuffer[idx].pos = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
         gBuffer[idx].bCol =
             shadeableIntersections[idx].useTexture
                 ? texCol2Color(texData[uv2Idx(shadeableIntersections[idx].uvs, texW, texH)].bCol)
                 : mats[shadeableIntersections[idx].materialId].color;
+        gBuffer[idx].rtCol = pathSegments[idx].color;
     }
 }
 
@@ -840,7 +844,7 @@ __global__ void denoiseKernel(int x, int y, GBufferPixel *gbuff,
             cumWeight += piWeight;
         }
     }
-    atrous2[index] = sigmaCols / cumWeight;
+    atrous2[index] = cumWeight == 0.f ? glm::vec3(0.f) : sigmaCols / cumWeight;
 }
 
 void denoise(int ui_filterSize, float ui_normalWeight, float ui_positionWeight, float ui_colorWeight)
