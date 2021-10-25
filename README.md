@@ -1,3 +1,5 @@
+
+
 # CUDA Denoiser 
 
 **University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 4**
@@ -9,6 +11,78 @@
 ## Project Description
 
 This is a CUDA-based denoiser for path tracing. The denoising algorithm in use the Edge Avoiding A-Trous Wavelet Transform. This denoiser reduces the number of iteration steps for the Monte Carlo sampling path tracer. I integrated the denoiser into the previous CUDA path tracer project with added GUI sliders and parameters with the Dear Imgui library. 
+
+## Denoising Effects
+
+* Cornell ceiling light demo
+
+| Denoising On       | Denoising Off       |
+| ------------------ | ------------------- |
+| ![off](img/on.png) | ![off](img/off.png) |
+
+* G buffers (custom scene demo)
+
+| Normal Buffer                | Position Buffer            |
+| ---------------------------- | -------------------------- |
+| ![norm](img/norm_buffer.png) | ![pos](img/pos_buffer.png) |
+
+## Performance Analysis
+
+### Time taken w/w.o. denoising
+
+![comp](img/time_compare.png)
+
+* The conclusion for this is the denoising does not add significant overhead to the rendering. Adding denoising adds 15% of the original time. The performance difference between rendering with denoising and rendering without denoising is almost negligible. 
+
+### Number of iterations taken for image to be "smooth"
+
+| With Denoising                                      | Without Denoising                                    |
+| --------------------------------------------------- | ---------------------------------------------------- |
+| ![image-20211025011136397](img/35_iters_needed.png) | ![image-20211025011136397](img/500_iters_needed.png) |
+
+* The left image: With added denoising, the image looks smooth when it only has 35 iterations. However, on the right image, without added denoising, the image needs 500 iterations to look "smooth" enough.
+
+### Time taken for denoising with increasing resolution
+
+![img](img/iteration_compare.png)
+
+* The time taken for denoised rendering increases linearly as resolution increases. 
+
+### Time taken for denoising with increasing filter size
+
+```c++
+    int atrou_iter = glm::floor(log2((filtersize - 5) / 4.f)) + 1;
+```
+
+* The number of iterations that the A-trous denoising kernel is calculated as above using filterSize. The below illustration shows why it's calculated this way by taking the integer log2 of (filtersize - 5) / 4  plus 1. 
+
+  ![illus](img/illus.png)
+
+* The time increases with increasing filter size, but not in a linear pattern. Simply because the  time increases along with the iterations, not with the filtersize. And filtersize increase results in Log(n) increase for the number of iterations. It is shown in the below graph. 
+
+![img](img/filtersize.png)
+
+### Image Quality with increasing filter size
+
+* For a image resolution with 800 * 800
+
+| FilterSize = 20          | FilterSize = 100          | FilterSize = 200           |
+| ------------------------ | ------------------------- | -------------------------- |
+| ![20](img/filter_20.png) | ![20](img/filter_100.png) | ![500](img/filter_200.png) |
+
+* **Small filter size: ** resulting in worley-looking noises in the image 
+* **Medium filter size: ** works best
+* **Big filter size: ** smoothing too much, in the rightmost image where filtersize = 200. The shadow casted is much smaller compared to the middle because it gets smoothed out. 
+
+### Material Type comparison
+
+| Perfectly Specular       | Refractive material (glass) |
+| ------------------------ | --------------------------- |
+| ![img](img/specular.png) | ![img](img/refract.png)     |
+
+* The left image shows a perfectly specular sphere after denoising. This is a good result since it perserves  the quality of the material
+* The right image shows the refractive glass material, but it is not smoothed out nicely. It loses some quality of the refractive material. 
+* For perfectly diffuse materials, it works the most nicely (On the walls)
 
 CUDA Path Tracer
 ================

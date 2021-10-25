@@ -21,8 +21,8 @@
 #define DEPTH_OF_FIELD 0
 #define MESH_BOUND_CHECK 1
 #define ANTI_ALIASING 1
-#define GBUFFER_NORMAL 0
-#define GBUFFER_POSITION 1
+#define GBUFFER_NORMAL 1
+#define GBUFFER_POSITION 0
 
 #define ERRORCHECK 1
 
@@ -514,7 +514,7 @@ GBufferPixel* gbuffer, float c_phi, float n_phi, float p_phi, float stepwidth) {
 
             glm::vec3 ntmp = gbuffer[uv.x + uv.y * resolution.x].normal;
             t = nval - ntmp;
-            dist2 = max(glm::dot(t, t), 0.f);
+            dist2 = max(glm::dot(t, t)/ (stepwidth * stepwidth), 0.f);
             float n_w = min(exp(-dist2 / n_phi), 1.f);
 
             glm::vec3 ptmp = gbuffer[uv.x + uv.y * resolution.x].position;

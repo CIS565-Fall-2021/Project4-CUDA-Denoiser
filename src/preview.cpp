@@ -7,6 +7,17 @@
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+
+#include <cstdio>
+#include <cstring>
+#include <cmath>
+#include <algorithm>
+#include <chrono>
+#include <stdexcept>
+
+
 #define IMGUI_IMPL_OPENGL_LOADER_GLEW
 
 GLuint positionLocation = 0;
@@ -23,6 +34,94 @@ std::string currentTimeString() {
     strftime(buf, sizeof buf, "%Y-%m-%d_%H-%M-%Sz", gmtime(&now));
     return std::string(buf);
 }
+
+
+class PerformanceTimer
+{
+public:
+    PerformanceTimer()
+    {
+        cudaEventCreate(&event_start);
+        cudaEventCreate(&event_end);
+    }
+
+    ~PerformanceTimer()
+    {
+        cudaEventDestroy(event_start);
+        cudaEventDestroy(event_end);
+    }
+
+    void startCpuTimer()
+    {
+        if (cpu_timer_started) { throw std::runtime_error("CPU timer already started"); }
+        cpu_timer_started = true;
+
+        time_start_cpu = std::chrono::high_resolution_clock::now();
+    }
+
+    void endCpuTimer()
+    {
+        time_end_cpu = std::chrono::high_resolution_clock::now();
+
+        if (!cpu_timer_started) { throw std::runtime_error("CPU timer not started"); }
+
+        std::chrono::duration<double, std::milli> duro = time_end_cpu - time_start_cpu;
+        prev_elapsed_time_cpu_milliseconds =
+            static_cast<decltype(prev_elapsed_time_cpu_milliseconds)>(duro.count());
+
+        cpu_timer_started = false;
+    }
+
+    void startGpuTimer()
+    {
+        if (gpu_timer_started) { throw std::runtime_error("GPU timer already started"); }
+        gpu_timer_started = true;
+
+        cudaEventRecord(event_start);
+    }
+
+    void endGpuTimer()
+    {
+        cudaEventRecord(event_end);
+        cudaEventSynchronize(event_end);
+
+        if (!gpu_timer_started) { throw std::runtime_error("GPU timer not started"); }
+
+        cudaEventElapsedTime(&prev_elapsed_time_gpu_milliseconds, event_start, event_end);
+        gpu_timer_started = false;
+    }
+
+    float getCpuElapsedTimeForPreviousOperation() //noexcept //(damn I need VS 2015
+    {
+        return prev_elapsed_time_cpu_milliseconds;
+    }
+
+    float getGpuElapsedTimeForPreviousOperation() //noexcept
+    {
+        return prev_elapsed_time_gpu_milliseconds;
+    }
+
+    // remove copy and move functions
+    PerformanceTimer(const PerformanceTimer&) = delete;
+    PerformanceTimer(PerformanceTimer&&) = delete;
+    PerformanceTimer& operator=(const PerformanceTimer&) = delete;
+    PerformanceTimer& operator=(PerformanceTimer&&) = delete;
+
+private:
+    cudaEvent_t event_start = nullptr;
+    cudaEvent_t event_end = nullptr;
+
+    using time_point_t = std::chrono::high_resolution_clock::time_point;
+    time_point_t time_start_cpu;
+    time_point_t time_end_cpu;
+
+    bool cpu_timer_started = false;
+    bool gpu_timer_started = false;
+
+    float prev_elapsed_time_cpu_milliseconds = 0.f;
+    float prev_elapsed_time_gpu_milliseconds = 0.f;
+};
+
 
 //-------------------------------
 //----------SETUP STUFF----------
@@ -214,7 +313,7 @@ void drawGui(int windowWidth, int windowHeight) {
 
     ImGui::Checkbox("Denoise", &ui_denoise);
 
-    ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 100);
+    ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 5000);
     ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 10.0f);
     ImGui::SliderFloat("Normal Weight", &ui_normalWeight, 0.0f, 10.0f);
     ImGui::SliderFloat("Position Weight", &ui_positionWeight, 0.0f, 10.0f);
@@ -238,7 +337,14 @@ void drawGui(int windowWidth, int windowHeight) {
 void mainLoop() {
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+
+        static PerformanceTimer timer;
+        timer.startCpuTimer();
+
         runCuda();
+
+        timer.endCpuTimer();
+        printf("%f\n", timer.getCpuElapsedTimeForPreviousOperation());
 
         string title = "CIS565 Path Tracer | " + utilityCore::convertIntToString(iteration) + " Iterations";
         glfwSetWindowTitle(window, title.c_str());
