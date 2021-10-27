@@ -71,6 +71,7 @@ struct PathSegment {
 // 2) BSDF evaluation: generate a new ray
 struct ShadeableIntersection {
   float t;
+  glm::vec3 intersect_point;
   glm::vec3 surfaceNormal;
   int materialId;
 };
@@ -78,5 +79,7 @@ struct ShadeableIntersection {
 // CHECKITOUT - a simple struct for storing scene geometry information per-pixel.
 // What information might be helpful for guiding a denoising filter?
 struct GBufferPixel {
-  float t;
+	float t;     // how far along ray is the intersection?
+	glm::vec3 n; // normal vector
+	glm::vec3 p; // position vector
 };
