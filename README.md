@@ -47,10 +47,10 @@ The effect of filter size on the actual plot is investigated. From the image bel
 As in the previously implemented setting, the ball is specular and the walls are fully diffusive. We can
 observe that denosing effects are different on different materials. Some surfaces such as diffusive surfaces are much more compatible with the blur. This is as expected as a diffused surface is essentially one color. There is not really any information being lost when the kernel is applied to that part of the image. The surface getting blurred is effective at making it look better as there's a high chance that undesired noise are removed and edges are preserved. This is not the case however with refractive and specular materials. These materials generally create specific reflections of light or the surrounding scene. When these reflections get blurred out by the denoiser they no longer truly look like the material they are supposed to be. This is especially noticeable in the refractive material objects where the contrast between the object and the reflections are not as great and the entire interior of the object gets blurred. It no longer looks like glass because the visuals that make it refractive are not seen.
 
-We can also see how the amount of light in the scene impacts the effectiveness of the denoiser. A darker scene makes it much more difficult for the denoiser to produce a good image. The same filter size, iterations, and weights were used to produce both of these images, but the lack of light in the second one makes it appear much noisier.
+The relationship between lighting condition in the scene and the quality of pathtracing denosing is also investigated. The below image shows a comparison between the denoised image generated using the exact same filter size, iterations, and weights settings. We can easily observe that the lack of light in the second one makes it appear much noisier. Therefore, lighting impacts the effectiveness of the denoiser. A darker scene usually makes it much more difficult for the denoiser to produce a good image. 
 
 | Good Lighting | Poor Lighting |
-|---|---|
+
 ![](p4_img/lighting.PNG)
 
 ## Feedback
