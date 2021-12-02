@@ -1,10 +1,14 @@
 #include "main.h"
 #include "preview.h"
 #include <cstring>
+#include <chrono>
 
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_impl_glfw.h"
 #include "../imgui/imgui_impl_opengl3.h"
+
+#define DENOISE 1
+#define TIMER 0
 
 static std::string startTimeString;
 
@@ -23,8 +27,8 @@ int ui_iterations = 0;
 int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
-bool ui_denoise = false;
-int ui_filterSize = 80;
+bool ui_denoise = true;
+int ui_filterSize = 200;
 float ui_colorWeight = 0.45f;
 float ui_normalWeight = 0.35f;
 float ui_positionWeight = 0.2f;
@@ -38,12 +42,16 @@ float zoom, theta, phi;
 glm::vec3 cameraPosition;
 glm::vec3 ogLookAt; // for recentering the camera
 
-Scene *scene;
-RenderState *renderState;
+Scene* scene;
+RenderState* renderState;
 int iteration;
 
 int width;
 int height;
+
+#if TIMER
+float averageTime = 0;
+#endif
 
 //-------------------------------
 //-------------MAIN--------------
@@ -57,7 +65,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const char *sceneFile = argv[1];
+    const char* sceneFile = argv[1];
 
     // Load scene file
     scene = new Scene(sceneFile);
@@ -65,7 +73,7 @@ int main(int argc, char** argv) {
     // Set up camera stuff from loaded path tracer settings
     iteration = 0;
     renderState = &scene->state;
-    Camera &cam = renderState->camera;
+    Camera& cam = renderState->camera;
     width = cam.resolution.x;
     height = cam.resolution.y;
 
@@ -122,13 +130,13 @@ void saveImage() {
 
 void runCuda() {
     if (lastLoopIterations != ui_iterations) {
-      lastLoopIterations = ui_iterations;
-      camchanged = true;
+        lastLoopIterations = ui_iterations;
+        camchanged = true;
     }
 
     if (camchanged) {
         iteration = 0;
-        Camera &cam = renderState->camera;
+        Camera& cam = renderState->camera;
         cameraPosition.x = zoom * sin(phi) * sin(theta);
         cameraPosition.y = zoom * cos(theta);
         cameraPosition.z = zoom * cos(phi) * sin(theta);
@@ -144,7 +152,7 @@ void runCuda() {
         cameraPosition += cam.lookAt;
         cam.position = cameraPosition;
         camchanged = false;
-      }
+    }
 
     // Map OpenGL buffer object for writing from CUDA on a single GPU
     // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
@@ -154,7 +162,7 @@ void runCuda() {
         pathtraceInit(scene);
     }
 
-    uchar4 *pbo_dptr = NULL;
+    uchar4* pbo_dptr = NULL;
     cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
     if (iteration < ui_iterations) {
@@ -162,13 +170,41 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
+
+#if TIMER
+        std::chrono::high_resolution_clock::time_point timer_start = std::chrono::high_resolution_clock::now();
+#endif
         pathtrace(frame, iteration);
+#if TIMER
+        std::chrono::high_resolution_clock::time_point timer_end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> period = timer_end - timer_start;
+        float prev_cpu_time = static_cast<decltype(prev_cpu_time)>(period.count());
+        averageTime = (averageTime * (iteration - 1) + prev_cpu_time) / (iteration);
+        cout << "Iterations:" << iteration << ", Time: " << prev_cpu_time << ", Average Time" << averageTime << endl;
+#endif
     }
 
     if (ui_showGbuffer) {
-      showGBuffer(pbo_dptr);
-    } else {
-      showImage(pbo_dptr, iteration);
+        showGBuffer(pbo_dptr);
+    }
+    else if (iteration == ui_iterations) {
+        //showDenoised(pbo_dptr, iteration, ui_colorWeight, ui_normalWeight, ui_positionWeight, ui_filterSize);
+        if (ui_denoise) {
+#if TIMER
+            std::chrono::high_resolution_clock::time_point timer_start = std::chrono::high_resolution_clock::now();
+#endif
+            showDenoised(pbo_dptr, iteration, ui_colorWeight, ui_normalWeight, ui_positionWeight, ui_filterSize);
+#if TIMER
+            std::chrono::high_resolution_clock::time_point timer_end = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double, std::milli> period = timer_end - timer_start;
+            float prev_cpu_time = static_cast<decltype(prev_cpu_time)>(period.count());
+            cout << "Denoising time:" << prev_cpu_time << endl;
+#endif
+        }
+
+    }
+    else {
+        showImage(pbo_dptr, iteration);
     }
 
     // unmap buffer object
@@ -184,59 +220,61 @@ void runCuda() {
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (action == GLFW_PRESS) {
-      switch (key) {
-      case GLFW_KEY_ESCAPE:
-        saveImage();
-        glfwSetWindowShouldClose(window, GL_TRUE);
-        break;
-      case GLFW_KEY_S:
-        saveImage();
-        break;
-      case GLFW_KEY_SPACE:
-        camchanged = true;
-        renderState = &scene->state;
-        Camera &cam = renderState->camera;
-        cam.lookAt = ogLookAt;
-        break;
-      }
+        switch (key) {
+        case GLFW_KEY_ESCAPE:
+            saveImage();
+            glfwSetWindowShouldClose(window, GL_TRUE);
+            break;
+        case GLFW_KEY_S:
+            saveImage();
+            break;
+        case GLFW_KEY_SPACE:
+            camchanged = true;
+            renderState = &scene->state;
+            Camera& cam = renderState->camera;
+            cam.lookAt = ogLookAt;
+            break;
+        }
     }
 }
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
-  if (ImGui::GetIO().WantCaptureMouse) return;
-  leftMousePressed = (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS);
-  rightMousePressed = (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS);
-  middleMousePressed = (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS);
+    if (ImGui::GetIO().WantCaptureMouse) return;
+    leftMousePressed = (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS);
+    rightMousePressed = (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS);
+    middleMousePressed = (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS);
 }
 
 void mousePositionCallback(GLFWwindow* window, double xpos, double ypos) {
-  if (xpos == lastX || ypos == lastY) return; // otherwise, clicking back into window causes re-start
-  if (leftMousePressed) {
-    // compute new camera parameters
-    phi -= (xpos - lastX) / width;
-    theta -= (ypos - lastY) / height;
-    theta = std::fmax(0.001f, std::fmin(theta, PI));
-    camchanged = true;
-  }
-  else if (rightMousePressed) {
-    zoom += (ypos - lastY) / height;
-    zoom = std::fmax(0.1f, zoom);
-    camchanged = true;
-  }
-  else if (middleMousePressed) {
-    renderState = &scene->state;
-    Camera &cam = renderState->camera;
-    glm::vec3 forward = cam.view;
-    forward.y = 0.0f;
-    forward = glm::normalize(forward);
-    glm::vec3 right = cam.right;
-    right.y = 0.0f;
-    right = glm::normalize(right);
+    if (xpos == lastX || ypos == lastY) return; // otherwise, clicking back into window causes re-start
+    if (leftMousePressed) {
+        // compute new camera parameters
+        phi -= (xpos - lastX) / width;
+        theta -= (ypos - lastY) / height;
+        theta = std::fmax(0.001f, std::fmin(theta, PI));
+        camchanged = true;
+    }
+    else if (rightMousePressed) {
+        zoom += (ypos - lastY) / height;
+        zoom = std::fmax(0.1f, zoom);
+        camchanged = true;
+    }
+    else if (middleMousePressed) {
+        renderState = &scene->state;
+        Camera& cam = renderState->camera;
+        glm::vec3 forward = cam.view;
+        forward.y = 0.0f;
+        forward = glm::normalize(forward);
+        glm::vec3 right = cam.right;
+        right.y = 0.0f;
+        right = glm::normalize(right);
 
-    cam.lookAt -= (float) (xpos - lastX) * right * 0.01f;
-    cam.lookAt += (float) (ypos - lastY) * forward * 0.01f;
-    camchanged = true;
-  }
-  lastX = xpos;
-  lastY = ypos;
+        cam.lookAt -= (float)(xpos - lastX) * right * 0.01f;
+        cam.lookAt += (float)(ypos - lastY) * forward * 0.01f;
+        camchanged = true;
+    }
+    lastX = xpos;
+    lastY = ypos;
 }
+
+

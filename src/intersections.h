@@ -6,6 +6,8 @@
 #include "sceneStructs.h"
 #include "utilities.h"
 
+#define BOUNDING_BOX 0
+
 /**
  * Handy-dandy hash function that provides seeds for random number generation.
  */
@@ -19,6 +21,7 @@ __host__ __device__ inline unsigned int utilhash(unsigned int a) {
     return a;
 }
 
+// CHECKITOUT
 /**
  * Compute a point at parameter value `t` on ray `r`.
  * Falls slightly short so that it doesn't intersect the object it's hitting.
@@ -34,6 +37,7 @@ __host__ __device__ glm::vec3 multiplyMV(glm::mat4 m, glm::vec4 v) {
     return glm::vec3(m * v);
 }
 
+// CHECKITOUT
 /**
  * Test intersection between a ray and a transformed cube. Untransformed,
  * the cube ranges from -0.5 to 0.5 in each axis and is centered at the origin.
@@ -44,9 +48,9 @@ __host__ __device__ glm::vec3 multiplyMV(glm::mat4 m, glm::vec4 v) {
  * @return                   Ray parameter `t` value. -1 if no intersection.
  */
 __host__ __device__ float boxIntersectionTest(Geom box, Ray r,
-        glm::vec3 &intersectionPoint, glm::vec3 &normal, bool &outside) {
+    glm::vec3& intersectionPoint, glm::vec3& normal, bool& outside) {
     Ray q;
-    q.origin    =                multiplyMV(box.inverseTransform, glm::vec4(r.origin   , 1.0f));
+    q.origin = multiplyMV(box.inverseTransform, glm::vec4(r.origin, 1.0f));
     q.direction = glm::normalize(multiplyMV(box.inverseTransform, glm::vec4(r.direction, 0.0f)));
 
     float tmin = -1e38f;
@@ -87,6 +91,7 @@ __host__ __device__ float boxIntersectionTest(Geom box, Ray r,
     return -1;
 }
 
+// CHECKITOUT
 /**
  * Test intersection between a ray and a transformed sphere. Untransformed,
  * the sphere always has radius 0.5 and is centered at the origin.
@@ -97,7 +102,7 @@ __host__ __device__ float boxIntersectionTest(Geom box, Ray r,
  * @return                   Ray parameter `t` value. -1 if no intersection.
  */
 __host__ __device__ float sphereIntersectionTest(Geom sphere, Ray r,
-        glm::vec3 &intersectionPoint, glm::vec3 &normal, bool &outside) {
+    glm::vec3& intersectionPoint, glm::vec3& normal, bool& outside) {
     float radius = .5;
 
     glm::vec3 ro = multiplyMV(sphere.inverseTransform, glm::vec4(r.origin, 1.0f));
@@ -121,10 +126,12 @@ __host__ __device__ float sphereIntersectionTest(Geom sphere, Ray r,
     float t = 0;
     if (t1 < 0 && t2 < 0) {
         return -1;
-    } else if (t1 > 0 && t2 > 0) {
+    }
+    else if (t1 > 0 && t2 > 0) {
         t = min(t1, t2);
         outside = true;
-    } else {
+    }
+    else {
         t = max(t1, t2);
         outside = false;
     }
@@ -138,4 +145,19 @@ __host__ __device__ float sphereIntersectionTest(Geom sphere, Ray r,
     }
 
     return glm::length(r.origin - intersectionPoint);
+}
+
+__host__ __device__ float triangleIntersectionTest(Geom triangle, Ray r, glm::vec3& intersectionPoint, glm::vec3& normal, bool& outside) {
+    glm::vec3 pt1 = glm::vec3(triangle.transform * glm::vec4(triangle.triangle.pt1.pos, 1.0f));
+    glm::vec3 pt2 = glm::vec3(triangle.transform * glm::vec4(triangle.triangle.pt2.pos, 1.0f));
+    glm::vec3 pt3 = glm::vec3(triangle.transform * glm::vec4(triangle.triangle.pt3.pos, 1.0f));
+
+    glm::vec3 inter;
+    bool intersects = glm::intersectRayTriangle(r.origin, r.direction, pt1, pt2, pt3, inter);
+    if (!intersects) return -1.f;
+
+    float z = 1.0f - inter.x - inter.y;
+    intersectionPoint = inter.x * pt1 + inter.y * pt2 + z * pt3;
+    normal = glm::normalize(glm::cross(pt2 - pt1, pt3 - pt1));
+    return inter.z;
 }
