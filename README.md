@@ -6,6 +6,10 @@ CUDA Denoiser For CUDA Path Tracer
 * (Charles) Zixin Zhang
 * Tested on: Windows 11, 11th Core i7, 3060 Laptop GPU
 
+![pathTracer](images/pathTracer.gif)
+
+
+
 # Results
 
 Figure 1: Zoomed-in "So many balls" Scene: 
